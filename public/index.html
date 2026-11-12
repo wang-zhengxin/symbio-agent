@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 公司 · 本机工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/overview.css">
+  <link rel="stylesheet" href="/office-scene.css">
+  <link rel="stylesheet" href="/workspace.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <section class="account-gate" id="account-gate" aria-labelledby="account-heading">
+    <div class="account-card">
+      <div class="symbio-brand"><span class="symbio-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><strong>Symbio</strong></div>
+      <h1 id="account-heading">连接工作台</h1>
+      <p id="account-description">正在检查登录状态…</p>
+      <form id="account-form" class="fields" hidden>
+        <label id="account-name-field" hidden>显示名称<input name="name" maxlength="80" autocomplete="name"></label>
+        <label id="account-username-field">用户名<input name="username" required minlength="3" maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+        <label id="account-email-field" hidden>邮箱<input name="email" type="email" maxlength="254" autocomplete="email" autocapitalize="none"></label>
+        <div id="account-code-field" class="account-code-row" hidden>
+          <label>邮件验证码<input name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
+          <button type="button" id="account-send-code">发送验证码</button>
+        </div>
+        <label id="account-password-field">密码<input name="password" type="password" maxlength="128" required autocomplete="current-password"></label>
+        <label id="account-confirm-field" hidden>确认密码<input name="confirmPassword" type="password" maxlength="128" autocomplete="new-password"></label>
+        <button type="submit" class="primary" id="account-submit">登录</button>
+      </form>
+      <p class="account-feedback" id="account-feedback" role="status" hidden></p>
+      <button type="button" class="account-switch" id="account-switch" hidden>注册账号</button>
+    </div>
+  </section>
+  <div class="symbio-shell" id="office-shell" hidden>
+    <aside class="symbio-sidebar">
+      <div class="symbio-brand"><span class="symbio-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><strong>Symbio</strong></div>
+      <p class="symbio-tagline">人机共生 · 协同工作空间</p>
+      <button type="button" class="symbio-organization chevron-trigger chevron-next" data-page="settings">
+        <span><strong id="workspace-name">Agent 公司</strong><small>企业工作空间</small></span>
+      </button>
+      <nav class="symbio-navigation" aria-label="工作空间">
+        <p>工作空间</p>
+        <button data-page="overview"><img src="/office-assets/nav-monitor.svg" alt="">实时监控</button>
+        <button data-page="tasks"><img src="/office-assets/nav-grid.svg" alt="">项目工作台</button>
+        <button data-page="people"><img src="/office-assets/nav-people.svg" alt="">员工管理 <small id="sidebar-people">0</small></button>
+        <button data-page="agents"><img src="/office-assets/nav-bot.svg" alt="">Agent 管理</button>
+        <button data-page="layout"><img src="/office-assets/nav-layout.svg" alt="">布局管理</button>
+        <p class="symbio-nav-section">组织与支持</p>
+        <button data-page="settings"><img src="/office-assets/nav-settings.svg" alt="">工作空间设置</button>
+        <button data-page="help"><img src="/office-assets/nav-help.svg" alt="">帮助中心</button>
+      </nav>
+      <div class="symbio-sidebar-footer">
+        <button data-page="finance" class="symbio-quota">
+          <span>算力预算用量 <strong id="sidebar-quota-label">—</strong></span>
+          <progress id="sidebar-quota" max="100" value="0" aria-label="预算使用率"></progress>
+          <small>企业版 ・ 查看用量 ↗</small>
+        </button>
+        <div id="connection" class="connection" role="status"><i></i> 连接中</div>
+      </div>
+    </aside>
+    <header class="symbio-topbar">
+      <button type="button" class="symbio-mobile-menu" aria-label="显示导航" aria-expanded="false" data-action="ws-mobile-menu">☰</button>
+      <div class="symbio-breadcrumb"><span>工作空间</span><span aria-hidden="true">/</span><strong id="breadcrumb-page">实时监控</strong></div>
+      <button type="button" class="symbio-search" data-action="ws-search">
+        <img src="/office-assets/top-search.svg" alt=""><span>搜索项目、任务或员工…</span><kbd>⌘ K</kbd>
+      </button>
+      <div class="symbio-user">
+        <button type="button" class="symbio-bell" data-page="inbox" aria-label="收件箱">
+          <img src="/office-assets/top-bell.svg" alt=""><span id="inbox-count" hidden></span>
+        </button>
+        <button type="button" class="symbio-profile chevron-trigger" data-action="ws-profile">
+          <span><strong id="top-operator"></strong><small id="top-operator-role"></small></span>
+        </button>
+      </div>
+    </header>
+    <main id="main"><p class="empty">正在加载公司数据…</p></main>
+  </div>
+  <div id="task-board-menu" class="task-board-menu" role="group" aria-label="看板操作" hidden></div>
+  <div id="task-board-submenu" class="task-board-menu task-board-submenu" role="group" aria-label="看板选项" hidden></div>
+  <aside id="notice" class="notice" role="alert" hidden></aside>
+  <svg class="modal-symbols" width="0" height="0" aria-hidden="true">
+    <symbol id="modal-close-icon" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  </svg>
+  <dialog class="modal modal--compact" id="workspace-search" aria-labelledby="workspace-search-title">
+    <div class="modal-layout">
+      <header class="modal-header"><h2 id="workspace-search-title">全局搜索</h2>
+        <button class="modal-close" type="button" data-modal-close aria-label="关闭全局搜索"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
+      <div class="modal-body run-body">
+        <input id="workspace-search-input" type="search" placeholder="项目、任务、员工或 Agent" aria-label="搜索内容" autofocus>
+        <div id="workspace-search-results"></div>
+      </div>
+    </div>
+  </dialog>
+  <dialog class="modal modal--medium" id="overview-dialog" aria-labelledby="overview-dialog-title">
+    <div class="modal-layout">
+      <header class="modal-header"><h2 id="overview-dialog-title" tabindex="-1" autofocus></h2>
+        <button class="modal-close" type="button" data-modal-close aria-label="关闭详情"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
+      <div id="overview-dialog-body" class="modal-body run-body"></div>
+    </div>
+  </dialog>
+  <dialog class="modal" id="dialog" aria-labelledby="dialog-title">
+    <form id="editor" class="modal-layout">
+      <header class="modal-header"><h2 id="dialog-title" tabindex="-1" autofocus></h2>
+        <button class="modal-close" type="button" data-modal-close aria-label="关闭表单"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
+      <div id="fields" class="modal-body fields"></div>
+      <footer class="modal-footer">
+        <p id="form-error" role="alert"></p>
+        <div class="modal-actions"><button type="button" data-modal-close>取消</button><button type="submit" class="primary">保存</button></div>
+      </footer>
+    </form>
+  </dialog>
+  <dialog class="modal" id="pairing" aria-labelledby="pairing-title">
+    <div class="modal-layout">
+      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>机器配对密钥</h2>
+        <button class="modal-close" type="button" data-modal-close aria-label="关闭机器配对"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
+      <div class="modal-body fields">
+        <p>密钥只展示这一次。安装客户端时，在提示处粘贴密钥。</p>
+        <label>配对密钥<input id="pair-token" readonly></label>
+        <pre id="pair-command"></pre>
+      </div>
+    </div>
+  </dialog>
+  <dialog class="modal modal--wide" id="inspection" aria-labelledby="inspection-title">
+    <div class="modal-layout">
+      <header class="modal-header"><h2 id="inspection-title" tabindex="-1" autofocus>执行详情</h2>
+        <button class="modal-close" type="button" data-modal-close aria-label="关闭执行详情"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
+      <div id="run-body" class="modal-body run-body"></div>
+    </div>
+  </dialog>
+  <dialog class="modal task-detail-modal" id="task-inspection" aria-labelledby="task-inspection-title">
+    <div class="modal-layout">
+      <header class="modal-header task-detail-toolbar">
+        <h2 id="task-inspection-title" tabindex="-1" autofocus>任务详情</h2>
+        <div class="task-toolbar-actions">
+          <button class="task-properties-toggle" type="button" id="task-properties-toggle"
+            aria-controls="task-detail-rail" aria-expanded="false">属性与执行</button>
+          <button class="modal-close" type="button" data-modal-close aria-label="关闭任务详情"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button>
+        </div>
+      </header>
+      <div class="task-detail-layout">
+        <div class="modal-body task-detail-content" id="task-detail-content">
+          <div class="task-detail-column">
+            <div id="task-body"></div>
+            <section class="task-discussion" id="task-discussion" aria-label="任务讨论" hidden>
+              <div id="task-discussion-feed"></div>
+              <form id="task-comment" class="modal-comment fields">
+                <div id="task-reply-target" class="task-reply-target" hidden>
+                  <span></span><button type="button" id="task-reply-clear">取消回复</button>
+                </div>
+                <label><span>发表评论</span><textarea name="text" maxlength="4000" placeholder="写下进展、问题或交接信息…" required></textarea></label>
+                <div id="task-comment-mentions" class="task-comment-mentions" aria-label="已提及的成员" hidden></div>
+                <label id="task-mention-picker" hidden>选择 @ 成员<span class="select-control"><select id="task-mention-select"></select></span></label>
+                <label class="checkbox task-email-option"><input type="checkbox" name="emailMentions" checked>向已开启邮件通知的 @ 用户发送评论</label>
+                <div class="modal-comment-actions">
+                  <button id="task-mention-button" class="chevron-trigger" type="button" aria-controls="task-mention-picker" aria-expanded="false">@ 成员</button>
+                  <p class="error" role="alert"></p><button class="primary" type="submit">发表评论</button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
+        <aside id="task-detail-rail" class="modal-body task-detail-rail" aria-label="任务属性与执行记录"></aside>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

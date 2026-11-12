@@ -1,0 +1,46 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="148" height="114.053" viewBox="0 0 148 114.053" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="meeting-zone">
+<path id="Vector" opacity="0.65" d="M2.44141e-06 54.1125L52.54 24.5125L148 76.3125L95.46 105.913L2.44141e-06 54.1125Z" fill="#DDDBD8"/>
+<g id="meeting-chair-back-one">
+<path id="Vector_2" d="M39.96 29.6925V41.5325M54.76 37.0925V48.9325" stroke-width="2.22" stroke="#B4B2AF"/>
+<path id="Vector_3" d="M32.56 25.9925L45.88 18.5925L61.42 26.7325L48.1 34.8725L32.56 25.9925Z" fill="#D3D2CF"/>
+<path id="Vector_4" d="M45.88 18.5925V2.31251C45.88 -0.154157 47.36 -0.64749 50.32 0.83251L62.9 7.49251V24.5125L61.42 26.7325L45.88 18.5925Z" fill="#E4E2DF"/>
+</g>
+<g id="meeting-chair-back-two">
+<path id="Vector_5" d="M71.04 46.7125V58.5525M85.84 54.1125V65.9525" stroke-width="2.22" stroke="#B4B2AF"/>
+<path id="Vector_6" d="M63.64 43.0125L76.96 35.6125L92.5 43.7525L79.18 51.8925L63.64 43.0125Z" fill="#D3D2CF"/>
+<path id="Vector_7" d="M76.96 35.6125V19.3325C76.96 16.8658 78.44 16.3725 81.4 17.8525L93.98 24.5125V41.5325L92.5 43.7525L76.96 35.6125Z" fill="#E4E2DF"/>
+</g>
+<g id="meeting-chair-back-three">
+<path id="Vector_8" d="M102.12 63.7325V75.5725M116.92 71.1325V82.9725" stroke-width="2.22" stroke="#B4B2AF"/>
+<path id="Vector_9" d="M94.72 60.0325L108.04 52.6325L123.58 60.7725L110.26 68.9125L94.72 60.0325Z" fill="#D3D2CF"/>
+<path id="Vector_10" d="M108.04 52.6325V36.3525C108.04 33.8858 109.52 33.3925 112.48 34.8725L125.06 41.5325V58.5525L123.58 60.7725L108.04 52.6325Z" fill="#E4E2DF"/>
+</g>
+<g id="conference-table">
+<path id="Vector_11" d="M28.86 43.0125L36.26 46.7125V68.1725L28.86 64.4725V43.0125ZM109.52 85.9325L116.92 82.2325V102.213L109.52 105.913V85.9325Z" fill="#C7C6C3"/>
+<path id="Vector_12" d="M6.66 35.6125L107.3 89.6325L139.12 72.6125V77.0525L107.3 94.0725L6.66 40.0525V35.6125Z" fill="#DEDCDA"/>
+<path id="Vector_13" d="M6.66 35.6125L38.48 18.5925L139.12 72.6125L107.3 89.6325L6.66 35.6125Z" fill="#FFFCFA" stroke-width="0.74" stroke-linejoin="round" stroke="#EAE8E5"/>
+<path id="Vector_14" d="M56.24 46.7125L65.12 41.5325L90.28 55.5925L81.4 60.7725L56.24 46.7125Z" fill="#E1DFDD"/>
+<path id="Vector_15" d="M66.6 46.7125L71.78 43.7525L81.4 48.9325L76.22 51.8925L66.6 46.7125Z" fill="#A4A29F"/>
+<path id="Vector_16" d="M71.04 43.7525V39.3125L76.22 42.2725V47.4525L71.04 43.7525Z" fill="#FCFAF8"/>
+</g>
+<g id="meeting-chair-front-one">
+<path id="Vector_17" d="M7.4 57.0725V71.8725M22.2 65.2125V80.0125" stroke-width="2.22" stroke="#B4B2AF"/>
+<path id="Vector_18" d="M2.22 53.3725L15.54 45.9725L31.82 54.8525L18.5 62.2525L2.22 53.3725Z" fill="#D0CECC"/>
+<path id="Vector_19" d="M2.22 53.3725V37.8325C2.22 34.8725 3.7 34.1325 6.66 35.6125L19.98 43.0125V61.5125L2.22 53.3725Z" fill="#E1DFDC"/>
+<path id="Vector_20" d="M19.98 43.0125L22.94 41.5325V60.0325L19.98 62.2525V43.0125Z" fill="#C4C3C0"/>
+</g>
+<g id="meeting-chair-front-two">
+<path id="Vector_21" d="M38.48 74.0925V88.8925M53.28 82.2325V97.0325" stroke-width="2.22" stroke="#B4B2AF"/>
+<path id="Vector_22" d="M33.3 70.3925L46.62 62.9925L62.9 71.8725L49.58 79.2725L33.3 70.3925Z" fill="#D0CECC"/>
+<path id="Vector_23" d="M33.3 70.3925V54.8525C33.3 51.8925 34.78 51.1525 37.74 52.6325L51.06 60.0325V78.5325L33.3 70.3925Z" fill="#E1DFDC"/>
+<path id="Vector_24" d="M51.06 60.0325L54.02 58.5525V77.0525L51.06 79.2725V60.0325Z" fill="#C4C3C0"/>
+</g>
+<g id="meeting-chair-front-three">
+<path id="Vector_25" d="M69.56 91.1125V105.913M84.36 99.2525V114.053" stroke-width="2.22" stroke="#B4B2AF"/>
+<path id="Vector_26" d="M64.38 87.4125L77.7 80.0125L93.98 88.8925L80.66 96.2925L64.38 87.4125Z" fill="#D0CECC"/>
+<path id="Vector_27" d="M64.38 87.4125V71.8725C64.38 68.9125 65.86 68.1725 68.82 69.6525L82.14 77.0525V95.5525L64.38 87.4125Z" fill="#E1DFDC"/>
+<path id="Vector_28" d="M82.14 77.0525L85.1 75.5725V94.0725L82.14 96.2925V77.0525Z" fill="#C4C3C0"/>
+</g>
+</g>
+</svg>

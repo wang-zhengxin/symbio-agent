@@ -1,0 +1,26 @@
+{
+  "name": "agent-office",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apogee"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=apogee",
+    "build": "npm run build --workspace=apogee",
+    "lint": "npm run lint --workspace=apogee",
+    "preview": "npm run preview --workspace=apogee",
+    "typecheck": "npm run typecheck --workspace=apogee",
+    "prestart": "npm run build",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "nodemailer": "^10.5.0",
+    "three": "0.180.0"
+  }
+}

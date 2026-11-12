@@ -1,0 +1,36 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="133.966" height="112.48" viewBox="0 0 133.966 112.48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="ai-laboratory-zone">
+<path id="Vector" d="M17.0461 66.6L51.8261 48.1L133.966 92.5L99.1861 111L17.0461 66.6Z" fill="#DDDBD8"/>
+<g id="server-one">
+<path id="Vector_2" d="M26.6661 7.4L44.4261 17.02V70.3L26.6661 60.68V7.4Z" fill="#62615E"/>
+<path id="Vector_3" d="M44.4261 17.02L58.4861 9.62V62.9L44.4261 70.3V17.02Z" fill="#4A4946"/>
+<path id="Vector_4" d="M26.6661 7.40001L40.7261 8.54492e-06L58.4861 9.62001L44.4261 17.02L26.6661 7.40001Z" fill="#878682"/>
+<path id="Vector_5" d="M31.1061 17.02V52.54" stroke-width="2.22" stroke-linecap="round" stroke="#D6D5D1"/>
+<path id="Vector_6" d="M36.2861 20.72L40.7261 22.94M36.2861 25.9L40.7261 28.12M36.2861 43.66L40.7261 45.88M36.2861 48.84L40.7261 51.06" stroke-width="1.48" stroke="#93928F"/>
+<path id="Vector_7" d="M36.2861 57.72L40.7261 59.94V62.16L36.2861 59.94V57.72Z" fill="#E0DFDC"/>
+</g>
+<g id="server-two">
+<path id="Vector_8" d="M58.4861 24.42L76.2461 34.04V87.32L58.4861 77.7V24.42Z" fill="#62615E"/>
+<path id="Vector_9" d="M76.2461 34.04L90.3061 26.64V79.92L76.2461 87.32V34.04Z" fill="#4A4946"/>
+<path id="Vector_10" d="M58.4861 24.42L72.5461 17.02L90.3061 26.64L76.2461 34.04L58.4861 24.42Z" fill="#878682"/>
+<path id="Vector_11" d="M62.9261 34.04V69.56" stroke-width="2.22" stroke-linecap="round" stroke="#D6D5D1"/>
+<path id="Vector_12" d="M68.1061 37.74L72.5461 39.96M68.1061 42.92L72.5461 45.14M68.1061 60.68L72.5461 62.9M68.1061 65.86L72.5461 68.08" stroke-width="1.48" stroke="#93928F"/>
+<path id="Vector_13" d="M68.1061 74.74L72.5461 76.96V79.18L68.1061 76.96V74.74Z" fill="#E0DFDC"/>
+</g>
+<g id="server-three">
+<path id="Vector_14" d="M90.3061 41.44L108.066 51.06V104.34L90.3061 94.72V41.44Z" fill="#62615E"/>
+<path id="Vector_15" d="M108.066 51.06L122.126 43.66V96.94L108.066 104.34V51.06Z" fill="#4A4946"/>
+<path id="Vector_16" d="M90.3061 41.44L104.366 34.04L122.126 43.66L108.066 51.06L90.3061 41.44Z" fill="#878682"/>
+<path id="Vector_17" d="M94.7461 51.06V86.58" stroke-width="2.22" stroke-linecap="round" stroke="#D6D5D1"/>
+<path id="Vector_18" d="M99.9261 54.76L104.366 56.98M99.9261 59.94L104.366 62.16M99.9261 77.7L104.366 79.92M99.9261 82.88L104.366 85.1" stroke-width="1.48" stroke="#93928F"/>
+<path id="Vector_19" d="M99.9261 91.76L104.366 93.98V96.2L99.9261 93.98V91.76Z" fill="#E0DFDC"/>
+</g>
+<g id="laboratory-console">
+<path id="Vector_20" d="M5.94607 79.18L11.1261 82.14V99.9L5.94607 96.94V79.18ZM40.7261 94.72L45.9061 91.76V109.52L40.7261 112.48V94.72Z" fill="#CAC8C5"/>
+<path id="Vector_21" d="M0.766067 76.22L16.3061 67.34L51.0861 85.84L35.5461 94.72L0.766067 76.22Z" fill="#FAF8F5" stroke-width="0.74" stroke="#E2E0DD"/>
+<path id="Vector_22" d="M11.1261 76.96L23.7061 83.62L33.3261 78.44L20.7461 71.78L11.1261 76.96Z" fill="#A5A3A1"/>
+<path id="Vector_23" d="M11.1261 76.96L9.64607 62.9L22.2261 69.56L23.7061 83.62L11.1261 76.96Z" fill="#61605E"/>
+<path id="Vector_24" d="M13.3461 74.74L12.6061 67.34L20.0061 71.78L20.7461 79.18L13.3461 74.74Z" fill="#D7D6D3"/>
+</g>
+</g>
+</svg>

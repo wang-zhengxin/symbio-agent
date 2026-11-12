@@ -1,0 +1,36 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="123.104" height="103.36" viewBox="0 0 123.104 103.36" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="ai-laboratory-zone">
+<path id="Vector" d="M15.664 61.2L47.624 44.2L123.104 85L91.144 102L15.664 61.2Z" fill="#DDDBD8"/>
+<g id="server-one">
+<path id="Vector_2" d="M24.5041 6.8L40.8241 15.64V64.6L24.5041 55.76V6.8Z" fill="#62615E"/>
+<path id="Vector_3" d="M40.8241 15.64L53.7441 8.84V57.8L40.8241 64.6V15.64Z" fill="#4A4946"/>
+<path id="Vector_4" d="M24.504 6.8L37.424 0L53.744 8.84L40.824 15.64L24.504 6.8Z" fill="#878682"/>
+<path id="Vector_5" d="M28.5841 15.64V48.28" stroke-width="2.04" stroke-linecap="round" stroke="#D6D5D1"/>
+<path id="Vector_6" d="M33.3441 19.04L37.4241 21.08M33.3441 23.8L37.4241 25.84M33.3441 40.12L37.4241 42.16M33.3441 44.88L37.4241 46.92" stroke-width="1.36" stroke="#93928F"/>
+<path id="Vector_7" d="M33.3441 53.04L37.4241 55.08V57.12L33.3441 55.08V53.04Z" fill="#E0DFDC"/>
+</g>
+<g id="server-two">
+<path id="Vector_8" d="M53.7439 22.44L70.0639 31.28V80.24L53.7439 71.4V22.44Z" fill="#62615E"/>
+<path id="Vector_9" d="M70.0639 31.28L82.9839 24.48V73.44L70.0639 80.24V31.28Z" fill="#4A4946"/>
+<path id="Vector_10" d="M53.744 22.44L66.664 15.64L82.984 24.48L70.064 31.28L53.744 22.44Z" fill="#878682"/>
+<path id="Vector_11" d="M57.8239 31.28V63.92" stroke-width="2.04" stroke-linecap="round" stroke="#D6D5D1"/>
+<path id="Vector_12" d="M62.5839 34.68L66.6639 36.72M62.5839 39.44L66.6639 41.48M62.5839 55.76L66.6639 57.8M62.5839 60.52L66.6639 62.56" stroke-width="1.36" stroke="#93928F"/>
+<path id="Vector_13" d="M62.5839 68.68L66.6639 70.72V72.76L62.5839 70.72V68.68Z" fill="#E0DFDC"/>
+</g>
+<g id="server-three">
+<path id="Vector_14" d="M82.9842 38.08L99.3042 46.92V95.88L82.9842 87.04V38.08Z" fill="#62615E"/>
+<path id="Vector_15" d="M99.3042 46.92L112.224 40.12V89.08L99.3042 95.88V46.92Z" fill="#4A4946"/>
+<path id="Vector_16" d="M82.984 38.08L95.904 31.28L112.224 40.12L99.304 46.92L82.984 38.08Z" fill="#878682"/>
+<path id="Vector_17" d="M87.0642 46.92V79.56" stroke-width="2.04" stroke-linecap="round" stroke="#D6D5D1"/>
+<path id="Vector_18" d="M91.8242 50.32L95.9042 52.36M91.8242 55.08L95.9042 57.12M91.8242 71.4L95.9042 73.44M91.8242 76.16L95.9042 78.2" stroke-width="1.36" stroke="#93928F"/>
+<path id="Vector_19" d="M91.8242 84.32L95.9042 86.36V88.4L91.8242 86.36V84.32Z" fill="#E0DFDC"/>
+</g>
+<g id="laboratory-console">
+<path id="Vector_20" d="M5.46395 72.76L10.224 75.48V91.8L5.46395 89.08V72.76ZM37.424 87.04L42.184 84.32V100.64L37.424 103.36V87.04Z" fill="#CAC8C5"/>
+<path id="Vector_21" d="M0.703953 70.04L14.984 61.88L46.944 78.88L32.664 87.04L0.703953 70.04Z" fill="#FAF8F5" stroke-width="0.68" stroke="#E2E0DD"/>
+<path id="Vector_22" d="M10.224 70.72L21.784 76.84L30.624 72.08L19.064 65.96L10.224 70.72Z" fill="#A5A3A1"/>
+<path id="Vector_23" d="M10.224 70.72L8.86395 57.8L20.424 63.92L21.784 76.84L10.224 70.72Z" fill="#61605E"/>
+<path id="Vector_24" d="M12.264 68.68L11.584 61.88L18.384 65.96L19.064 72.76L12.264 68.68Z" fill="#D7D6D3"/>
+</g>
+</g>
+</svg>

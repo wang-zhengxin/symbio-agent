@@ -1,0 +1,41 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="134.68" height="94.7202" viewBox="0 0 134.68 94.7202" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="open-work-zone">
+<path id="Vector" opacity="0.6" d="M0 32.19L50.32 5.55L134.68 50.69L84.36 78.07L0 32.19Z" fill="#DDDBD8"/>
+<g id="desk-one">
+<path id="Vector_2" d="M11.1 18.87V41.07M42.92 36.63V58.83M65.86 24.05V46.25" stroke-width="2.96" stroke-linejoin="round" stroke="#BFBEBB"/>
+<path id="Vector_3" d="M5.92001 15.91L42.18 35.89L71.04 20.35V24.79L42.18 40.33L5.92001 20.35V15.91Z" fill="#DDDBD8"/>
+<path id="Vector_4" d="M5.92 15.91L34.78 0.37L71.04 20.35L42.18 35.89L5.92 15.91Z" fill="#FDFBF9" stroke-width="0.74" stroke-linejoin="round" stroke="#E8E6E3"/>
+<g id="laptop-one">
+<path id="Vector_5" d="M22.2 16.65L37 24.79L51.06 17.39L36.26 9.25L22.2 16.65Z" fill="#BBBAB7"/>
+<path id="Vector_6" d="M22.2 16.65L19.98 1.10999L34.78 9.24999L37 24.79L22.2 16.65Z" fill="#6F6E6B" stroke-width="1.48" stroke-linejoin="round" stroke="#6F6E6B"/>
+<path id="Vector_7" d="M24.42 14.43L22.94 5.55L32.56 10.73L34.04 19.61L24.42 14.43Z" fill="#E0DEDC"/>
+<path id="Vector_8" d="M39.96 17.39L43.66 15.17" stroke-width="1.11" stroke="#EFEDEA"/>
+</g>
+<path id="Vector_9" d="M54.02 21.83L58.46 19.61L62.9 21.83L58.46 24.05L54.02 21.83Z" fill="#CAC9C6"/>
+</g>
+<g id="desk-two">
+<path id="Vector_10" d="M60.68 46.25V68.45M92.5 64.01V86.21M115.44 51.43V73.63" stroke-width="2.96" stroke-linejoin="round" stroke="#BFBEBB"/>
+<path id="Vector_11" d="M55.5 43.29L91.76 63.27L120.62 47.73V52.17L91.76 67.71L55.5 47.73V43.29Z" fill="#DDDBD8"/>
+<path id="Vector_12" d="M55.5 43.29L84.36 27.75L120.62 47.73L91.76 63.27L55.5 43.29Z" fill="#FDFBF9" stroke-width="0.74" stroke-linejoin="round" stroke="#E8E6E3"/>
+<g id="laptop-two">
+<path id="Vector_13" d="M71.78 44.03L86.58 52.17L100.64 44.77L85.84 36.63L71.78 44.03Z" fill="#BBBAB7"/>
+<path id="Vector_14" d="M71.78 44.03L69.56 28.49L84.36 36.63L86.58 52.17L71.78 44.03Z" fill="#6F6E6B" stroke-width="1.48" stroke-linejoin="round" stroke="#6F6E6B"/>
+<path id="Vector_15" d="M74 41.81L72.52 32.93L82.14 38.11L83.62 46.99L74 41.81Z" fill="#E0DEDC"/>
+<path id="Vector_16" d="M89.54 44.77L93.24 42.55" stroke-width="1.11" stroke="#EFEDEA"/>
+</g>
+<path id="Vector_17" d="M102.86 49.21L108.78 46.25L113.96 49.21L108.04 52.17L102.86 49.21Z" fill="#DEDCD9"/>
+</g>
+<g id="sage-task-chair-one">
+<path id="Vector_18" d="M23.68 48.47V61.05M23.68 61.05L12.58 64.01M23.68 61.05L32.56 66.23M23.68 61.05L30.34 57.35" stroke-width="2.22" stroke-linecap="round" stroke="#ABA9A6"/>
+<path id="Vector_19" d="M8.14002 44.77C7.15335 42.7967 7.89335 41.07 10.36 39.59L22.2 33.67L39.22 43.29L25.16 51.43L8.14002 44.77Z" fill="#B9B8B5"/>
+<path id="Vector_20" d="M7.4 43.29L5.18 26.27C4.68667 23.31 5.92 22.3233 8.88 23.31L22.94 30.71C24.9133 31.6967 25.9 33.67 25.9 36.63L25.16 50.69L7.4 43.29Z" fill="#CAC8C5"/>
+<path id="Vector_21" d="M11.1 28.49L20.72 33.67" stroke-width="1.48" stroke="#A5A4A1"/>
+</g>
+<g id="sage-task-chair-two">
+<path id="Vector_22" d="M73.26 75.85V88.43M73.26 88.43L62.16 91.39M73.26 88.43L82.14 93.61M73.26 88.43L79.92 84.73" stroke-width="2.22" stroke-linecap="round" stroke="#ABA9A6"/>
+<path id="Vector_23" d="M57.72 72.15C56.7333 70.1767 57.4733 68.45 59.94 66.97L71.78 61.05L88.8 70.67L74.74 78.81L57.72 72.15Z" fill="#B9B8B5"/>
+<path id="Vector_24" d="M56.98 70.67L54.76 53.65C54.2667 50.69 55.5 49.7033 58.46 50.69L72.52 58.09C74.4933 59.0767 75.48 61.05 75.48 64.01L74.74 78.07L56.98 70.67Z" fill="#CAC8C5"/>
+<path id="Vector_25" d="M60.68 55.87L70.3 61.05" stroke-width="1.48" stroke="#A5A4A1"/>
+</g>
+</g>
+</svg>

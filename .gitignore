@@ -1,0 +1,6 @@
+/data/
+/.env
+/node_modules/
+/apogee/node_modules/
+/apogee/dist/
+.DS_Store
