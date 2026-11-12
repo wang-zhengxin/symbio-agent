@@ -112,12 +112,14 @@
   </dialog>
   <dialog class="modal" id="pairing" aria-labelledby="pairing-title">
     <div class="modal-layout">
-      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>机器配对密钥</h2>
+      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>远程采集启动命令</h2>
         <button class="modal-close" type="button" data-modal-close aria-label="关闭机器配对"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
       <div class="modal-body fields">
-        <p>密钥只展示这一次。安装客户端时，在提示处粘贴密钥。</p>
-        <label>配对密钥<input id="pair-token" readonly></label>
-        <pre id="pair-command"></pre>
+        <p>在目标机器终端运行。命令含有该机器的配对密钥，请仅交给该机器的操作者。</p>
+        <p id="pair-route" class="description" hidden></p>
+        <label>首次启动<textarea id="pair-command" rows="4" readonly spellcheck="false"></textarea></label>
+        <div class="actions"><button type="button" id="pair-copy">复制启动命令</button><span id="pair-copy-status" role="status"></span></div>
+        <div><p>配对后重新启动</p><pre id="pair-restart"></pre></div>
       </div>
     </div>
   </dialog>

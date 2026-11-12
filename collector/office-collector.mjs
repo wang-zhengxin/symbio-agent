@@ -2,10 +2,10 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { constants, existsSync, realpathSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -151,29 +151,57 @@ async function main([command, address, ...flags]) {
     console.log(JSON.stringify(await scanAgents(), null, 2));
     return;
   }
-  if (command === 'install') {
-    if (!address) throw new Error('用法：node office-collector.mjs install <接收地址> [--allow-http]');
+  if (command === 'install' || command === 'join') {
+    if (!address) throw new Error('请提供采集接收地址');
     const allowHttp = flags.includes('--allow-http');
     endpoint(address, allowHttp);
     const reader = createInterface({input: process.stdin, output: process.stdout, terminal: false});
     let token;
     try {
-      token = process.env.OFFICE_COLLECTOR_TOKEN || (await reader.question('粘贴工作台生成的机器配对密钥：')).trim();
+      token = process.env.OFFICE_COLLECTOR_TOKEN;
+      if (!token && command === 'join' && !process.stdin.isTTY) {
+        for await (const line of reader) {
+          token = line.trim();
+          break;
+        }
+      } else if (!token) token = (await reader.question('粘贴工作台生成的机器配对密钥：')).trim();
     } finally { reader.close(); }
-    if (!/^[a-f0-9-]{36}\.[a-zA-Z0-9_-]{43}$/.test(token)) throw new Error('配对密钥格式无效');
+    if (!/^[a-f0-9-]{36}\.[a-zA-Z0-9_-]{43}$/.test(token ?? '')) throw new Error('配对密钥格式无效');
     const config = {server: address, token, allowHttp};
-    await sendReport(config);
-    await mkdir(dirname(configPath), {recursive: true, mode: 0o700});
-    await writeFile(configPath, JSON.stringify(config) + '\n', {mode: 0o600, flag: 'wx'});
-    console.log('配对成功。运行 node office-collector.mjs run 开始持续采集。');
+    await savePairing(config, command === 'join');
+    if (command === 'join' && !flags.includes('--once')) {
+      console.log('机器已上线，持续采集中。按 Ctrl+C 停止。');
+      await sleep(10_000);
+      await collect(config, false);
+    } else console.log('配对和首次上报成功。可运行采集器的 run 命令恢复持续采集。');
     return;
   }
   if (command !== 'run') {
-    console.log('用法：node office-collector.mjs scan | install <接收地址> | run [--once]');
+    console.log('用法：symbio-agent-collector scan | join <接收地址> [--allow-http] | run [--once]');
     return;
   }
-  const config = JSON.parse(await readFile(configPath, 'utf8'));
-  const once = address === '--once';
+  await collect(JSON.parse(await readFile(configPath, 'utf8')), address === '--once');
+}
+
+async function savePairing(config, resume) {
+  let existing;
+  try {
+    existing = JSON.parse(await readFile(configPath, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (existing && (!resume || existing.server !== config.server || existing.token !== config.token ||
+      Boolean(existing.allowHttp) !== config.allowHttp)) {
+    throw new Error('已有配对配置。可用 OFFICE_COLLECTOR_CONFIG 指定新配对的配置文件。');
+  }
+  await sendReport(config);
+  if (!existing) {
+    await mkdir(dirname(configPath), {recursive: true, mode: 0o700});
+    await writeFile(configPath, JSON.stringify(config) + '\n', {mode: 0o600, flag: 'wx'});
+  }
+}
+
+async function collect(config, once) {
   for (;;) {
     try {
       await sendReport(config);
@@ -186,7 +214,7 @@ async function main([command, address, ...flags]) {
   }
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).catch(error => {
     console.error(error.code === 'EEXIST' ? '已存在配对配置。重新配对前请移走旧配置。' : error.message);
     process.exitCode = 1;

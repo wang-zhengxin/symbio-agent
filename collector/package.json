@@ -1,0 +1,15 @@
+{
+  "name": "symbio-agent-collector",
+  "version": "0.1.0",
+  "description": "Remote Agent discovery collector for Symbio Agent",
+  "type": "module",
+  "bin": {"symbio-agent-collector": "./office-collector.mjs"},
+  "files": ["office-collector.mjs"],
+  "engines": {"node": ">=22.13"},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wang-zhengxin/symbio-agent.git",
+    "directory": "collector"
+  },
+  "publishConfig": {"access": "public", "registry": "https://registry.npmjs.org"}
+}

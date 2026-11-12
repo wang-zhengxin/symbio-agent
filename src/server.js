@@ -17,6 +17,7 @@ import { createAccounts, sessionCookie } from './accounts.js';
 import { createMailer } from './mailer.js';
 import { createMentionEmailDelivery } from './mention-email.js';
 import { scanAgents } from '../collector/office-collector.mjs';
+import { collectorCommand, collectorPackageSpec } from './collector-command.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const data = resolve(process.env.OFFICE_DATA_DIR ?? join(root, 'data'));
@@ -39,6 +40,13 @@ if (collectorPort && (Boolean(certFile) !== Boolean(keyFile) || (!loopback && !c
   throw new Error('远程监听需要同时配置 TLS 证书和密钥，或显式允许可信局域网 HTTP');
 }
 const tls = collectorPort && certFile ? {cert: readFileSync(certFile), key: readFileSync(keyFile)} : null;
+const collectorProtocol = tls ? 'https' : 'http';
+const collectorPackageArchive = process.env.OFFICE_COLLECTOR_PACKAGE_FILE
+  ? readFileSync(resolve(process.env.OFFICE_COLLECTOR_PACKAGE_FILE)) : null;
+const collectorAddressHost = collectorHost.includes(':') ? '[' + collectorHost + ']' : collectorHost;
+const defaultCollectorAddress = process.env.OFFICE_COLLECTOR_PUBLIC_URL ||
+  (['0.0.0.0','::'].includes(collectorHost) ? '' :
+    `${collectorProtocol}://${collectorAddressHost}:${collectorPort}`);
 mkdirSync(data, {recursive: true, mode: 0o700});
 
 const store = openStore(join(data, 'office.sqlite'));
@@ -124,6 +132,10 @@ async function body(req) {
 
 async function receiveCollector(req, res) {
   try {
+    if (collectorPackageArchive && req.method === 'GET' && req.url === '/v1/collector-package.tgz') {
+      res.writeHead(200, {'Content-Type':'application/gzip','Content-Length':collectorPackageArchive.length,'Cache-Control':'no-cache'});
+      return res.end(collectorPackageArchive);
+    }
     if (req.method !== 'POST' || req.url !== '/v1/report') fail('未找到该地址', 404);
     if (req.headers.origin) fail('采集接口仅供客户端使用', 403);
     const machineId = discovery.authenticate(req.headers.authorization);
@@ -229,7 +241,9 @@ function workspaceState(user) {
   const configuration = settings.snapshot();
   const base = {...records, ...workspaceData, user, settings:configuration, unread:settings.inbox(false, user).unread};
   if (user.role === 'admin') return {...base, ...discovery.snapshot(),
-    collector:{listening:Boolean(collectorServer?.listening), port:collectorPort, protocol:tls ? 'https' : 'http', loopback}};
+    collector:{listening:Boolean(collectorServer?.listening), port:collectorPort, protocol:collectorProtocol,
+      loopback, defaultAddress:defaultCollectorAddress, packageSpec:collectorPackageSpec,
+      tunnelHost:['0.0.0.0','::'].includes(collectorHost) ? '127.0.0.1' : collectorAddressHost}};
   return {...base, agents:records.agents.map(({id, name, teamId}) => ({id, name, teamId})),
     humans:workspaceData.humans.map(({id, name, teamId}) => ({id, name, teamId})),
     runs:records.runs.map(({error, usage, ...run}) => run),
@@ -383,7 +397,11 @@ const server = createServer(async (req, res) => {
       }
       if (path === '/api/machines') {
         if (!collectorServer?.listening) fail('采集接收端未启动', 409);
-        return json(res, discovery.issueMachine(input), 201);
+        const command = input.address === undefined ? null : collectorCommand(input,allowLanHttp,Boolean(collectorPackageArchive));
+        const pairing = discovery.issueMachine(input);
+        if (!command) return json(res,pairing,201);
+        return json(res,{machine:pairing.machine, command:command.launch(pairing.token),
+          restart:command.restart, loopback:command.loopback},201);
       }
       const machineRoute = path.match(/^\/api\/machines\/([a-f0-9-]+)\/revoke$/);
       if (machineRoute) return json(res, discovery.revoke(machineRoute[1]));

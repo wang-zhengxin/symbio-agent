@@ -52,6 +52,8 @@ OFFICE_SMTP_PASS="填入 SMTP 授权码"
 | `OFFICE_PI_PROVIDER_EXTENSION` | Pi 登录依赖已安装的模型提供商扩展时，设置为该扩展入口的绝对路径。扩展在服务账号下执行。 |
 | `OFFICE_COLLECTOR_PORT` | 默认是工作台端口加一。设为 `0` 可关闭采集入口。 |
 | `OFFICE_COLLECTOR_TLS_CERT`、`OFFICE_COLLECTOR_TLS_KEY` | 采集端直接使用 HTTPS 时，指定可读取的 PEM 证书和私钥。 |
+| `OFFICE_COLLECTOR_PUBLIC_URL` | 可选，填写目标机器可访问的采集地址，供配对表单预填。 |
+| `OFFICE_COLLECTOR_PACKAGE_FILE` | 可选，指向 `npm pack ./collector` 生成的归档。设置后，首次启动命令从采集端下载包。 |
 | `OFFICE_SMTP_SECURE` | 465 端口使用直接 TLS。其他端口可用 `1` 指定直接 TLS，未指定时要求 STARTTLS，默认端口为 587。 |
 
 ## 3. 安装、构建与首次启动
@@ -169,7 +171,7 @@ journalctl --user -u symbio-office.service -n 50 --no-pager
 
 ## 5. 接入远程采集机器
 
-1. 在「发现与入职 → 采集机器」下载 `office-collector.mjs`，复制到目标机器。为每台机器分别配对并保管密钥。目标机器需要 Node.js。
+1. 目标机器安装 Node.js 22.13 或更高版本，确保可以访问 npm registry 和工作台的采集入口。
 2. 在目标机器启动 SSH 转发。将 `deploy@office-host` 替换为工作台主机的实际 SSH 账号和地址。需要同时访问管理页时，在同一命令中加上 `-L 4317:127.0.0.1:4317`。
 
    ```sh
@@ -177,15 +179,9 @@ journalctl --user -u symbio-office.service -n 50 --no-pager
      -L 4318:127.0.0.1:4318 deploy@office-host
    ```
 
-3. 保持隧道打开，在目标机器另一个终端用能看到 Agent 进程的系统账号安装客户端，按提示粘贴密钥。
+3. 在「发现与入职 → 配对新机器」填写名称、接收地址和目标终端类型。默认 SSH 转发使用 `http://127.0.0.1:4318`。复制首次启动命令，保持隧道打开，在目标机器另一个终端以能看到 Agent 进程的账号执行。每台机器使用独立命令。
 
-   ```sh
-   node office-collector.mjs install http://127.0.0.1:4318
-   node office-collector.mjs run --once
-   node office-collector.mjs run
-   ```
-
-4. 验收机器在线、安装项和进程可见。远程候选经人事流程批准后作为「仅采集」员工。需常驻时，将 SSH 隧道和 `node office-collector.mjs run` 交由目标机服务管理器维护，并沿用安装配对时的账号。
+4. 验收机器在线、安装项和进程可见。远程候选经人事流程批准后作为「仅采集」员工。需常驻时，将 SSH 隧道和后台生成的重启命令交由目标机服务管理器维护，并沿用配对时的账号。
 
 客户端配对信息保存在 `~/.agent-office/collector.json`，也可用 `OFFICE_COLLECTOR_CONFIG` 指定路径。凭据失效时先在工作台撤销旧配对，移走旧配置后重新安装。直接连接采集端时，为其配置局域网监听地址和可信 TLS 证书，客户端使用 `https://采集主机名:4318`。
 

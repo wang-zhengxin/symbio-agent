@@ -901,8 +901,8 @@ function discovery() {
         btn('candidate-dismiss', '忽略', item.id))}</td></tr>`).join('')}</tbody></table></div>` : empty('暂无待处理候选。')}
     </section>
     <section class="panel"><div class="card-head"><h2>采集机器</h2>
-      <a href="/downloads/office-collector.mjs" download>下载采集客户端</a></div>
-    <p class="description">${escape(endpoint)}</p>
+      <a href="/downloads/office-collector.mjs" download>下载独立脚本</a></div>
+    <p class="description">${escape(endpoint)}${collector?.packageSpec ? ' · npm ' + escape(collector.packageSpec) : ''}</p>
     ${machines.length ? `<div class="table"><table>
       <thead><tr><th>机器</th><th>系统</th><th>状态</th><th>最近上报</th><th></th></tr></thead>
       <tbody>${machines.map(machine => `<tr><td>${escape(machine.name)}${machine.hostname ? ' · ' + escape(machine.hostname) : ''}</td>
@@ -1574,17 +1574,23 @@ function approveCandidate(id) {
 }
 
 function pairMachine() {
+  const {defaultAddress,port,tunnelHost} = data.collector;
   edit('配对新机器', input('机器名称', 'name', '', {required: true}) +
-    '<p class="description">把采集客户端复制到目标机器，安装时输入配对密钥。</p>',
+    input('目标机器可访问的接收地址', 'address', defaultAddress, {required:true,type:'url'}) +
+    select('目标机器的终端','shell',[['sh','macOS / Linux'],['powershell','Windows PowerShell']],'sh'),
     async form => {
-      const {token} = await api('machines', {name: form.get('name')});
-      const {loopback, protocol, port} = data.collector;
-      const address = loopback ? `${protocol}://127.0.0.1:${port}` : `${protocol}://接收主机地址:${port}`;
-      el('pair-token').value = token;
-      el('pair-command').textContent = `node office-collector.mjs install ${address}${!loopback && protocol === 'http' ? ' --allow-http' : ''}\nnode office-collector.mjs run` +
-        (loopback ? '\n\n远程机器需要先建立到接收端的 SSH 转发。' : '');
+      const {command,restart,loopback} = await api('machines',Object.fromEntries(form));
+      el('pair-command').value = command;
+      el('pair-restart').textContent = restart;
+      const address = new URL(form.get('address'));
+      const forwardedPort = address.port || (address.protocol === 'https:' ? '443' : '80');
+      el('pair-route').hidden = !loopback;
+      el('pair-route').textContent = loopback
+        ? `在目标机器另一个终端先运行 SSH 转发，将 user@office-host 换成工作台主机的 SSH 地址。ssh -N -L ${forwardedPort}:${tunnelHost}:${port} user@office-host`
+        : '';
+      el('pair-copy-status').textContent = '';
       openModal('pairing');
-    }, '生成配对密钥');
+    }, '生成启动命令');
 }
 
 function editTask(id, conversationId = '', preset = {}) {
@@ -1974,7 +1980,21 @@ async function action(type, id, anchor) {
   }
 }
 
-el('pairing').addEventListener('close', () => { el('pair-token').value = ''; });
+el('pair-copy').addEventListener('click', async () => {
+  const command = el('pair-command');
+  try {
+    await navigator.clipboard.writeText(command.value);
+    el('pair-copy-status').textContent = '启动命令已复制';
+  } catch {
+    command.focus();
+    command.select();
+    el('pair-copy-status').textContent = '已选中启动命令，可以手动复制';
+  }
+});
+el('pairing').addEventListener('close', () => {
+  el('pair-command').value = '';
+  el('pair-copy-status').textContent = '';
+});
 el('overview-dialog').addEventListener('close', () => {
   if (el('overview-dialog').open) return;
   overviewDetails = undefined;
