@@ -75,16 +75,18 @@ OFFICE_SMTP_PASS="你的 SMTP 授权码"
 
 ## 从另一台机器采集
 
-1. 在目标机器安装 Node.js 22.13 或更高版本。默认采集端只监听本机，可在目标机器建立 SSH 转发。将 `office-host` 替换为工作台主机，端口与实际设置一致。
+采集器已发布到 npm，当前版本为 `symbio-agent-collector@0.1.0`。目标机器安装 Node.js 22.13 或更高版本后，可以直接运行后台生成的配对命令。 [npm 包](https://www.npmjs.com/package/symbio-agent-collector/v/0.1.0)
+
+1. 让目标机器能访问采集端。若采集端使用默认的本机监听，在目标机器先建立 SSH 隧道，并保持该终端开启。把 `user@office-host` 换成工作台主机的 SSH 用户名和地址。
 
    ```sh
    ssh -N -L 4318:127.0.0.1:4318 user@office-host
    ```
 
-2. 在工作台「发现与入职 → 配对新机器」填写机器名称、目标机器可访问的接收地址，并选择终端类型。使用默认 SSH 转发时，接收地址是 `http://127.0.0.1:4318`。
-3. 复制后台生成的首次启动命令，在目标机器执行。命令用 `npx` 运行 `symbio-agent-collector`，自动配对并持续上报。后台同时提供复用已保存配对的重启命令。
+2. 在工作台「发现与入职 → 配对新机器」填写机器名称和接收地址，选择「macOS / Linux」或「Windows PowerShell」。使用上述 SSH 隧道时，填写 `http://127.0.0.1:4318`。
+3. 点击「生成启动命令」，复制「首次启动」，在目标机器的另一个终端执行。命令包含这台机器专用的配对密钥，并通过 `npx` 下载指定版本。完成配对后，采集器会立即上报并持续运行。在「采集机器」看到该机器显示「在线」即接入成功。
 
-采集器将配对保存在 `~/.agent-office/collector.json`。用 `run --once` 可以检查一次连接。客户端退出后约 40 秒，机器会标为离线。每台机器独立配对，可在工作台撤销。无法访问 npm 时，可在「采集机器」下载独立脚本，使用 `node office-collector.mjs install <接收地址>` 配对，再运行 `node office-collector.mjs run`。
+采集器将配对保存在 `~/.agent-office/collector.json`。在同一机器、同一系统账号下，使用后台的「配对后重新启动」命令即可恢复采集。每台机器独立配对，可在工作台撤销。 [远程采集部署与排障](docs/DEPLOYMENT.md#5-接入远程采集机器)
 
 直接接入可在工作台主机把 `OFFICE_COLLECTOR_HOST` 设为局域网 IP 或 `0.0.0.0`，用 `OFFICE_COLLECTOR_TLS_CERT` 和 `OFFICE_COLLECTOR_TLS_KEY` 指定可信证书与密钥，再在配对时填写 `https://主机名:4318`。可通过 `OFFICE_COLLECTOR_PUBLIC_URL` 预填可达地址。可信局域网的 HTTP 联调需要工作台设置 `OFFICE_COLLECTOR_ALLOW_HTTP=1`，后台会为生成的命令添加 `--allow-http`。
 

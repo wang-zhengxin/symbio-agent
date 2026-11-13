@@ -171,19 +171,27 @@ journalctl --user -u symbio-office.service -n 50 --no-pager
 
 ## 5. 接入远程采集机器
 
-1. 目标机器安装 Node.js 22.13 或更高版本，确保可以访问 npm registry 和工作台的采集入口。
-2. 在目标机器启动 SSH 转发。将 `deploy@office-host` 替换为工作台主机的实际 SSH 账号和地址。需要同时访问管理页时，在同一命令中加上 `-L 4317:127.0.0.1:4317`。
+1. 在目标机器安装 Node.js 22.13 或更高版本。后台默认使用 npm 公共仓库的 `symbio-agent-collector@0.1.0`。 [npm 发布页](https://www.npmjs.com/package/symbio-agent-collector/v/0.1.0)
+2. 默认情况下，采集端只在工作台主机本机监听。请在目标机器启动 SSH 转发，将 `deploy@office-host` 换成工作台主机的 SSH 用户名和地址。需要同时访问管理页时，可加入 `-L 4317:127.0.0.1:4317`。
 
    ```sh
    ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
      -L 4318:127.0.0.1:4318 deploy@office-host
    ```
 
-3. 在「发现与入职 → 配对新机器」填写名称、接收地址和目标终端类型。默认 SSH 转发使用 `http://127.0.0.1:4318`。复制首次启动命令，保持隧道打开，在目标机器另一个终端以能看到 Agent 进程的账号执行。每台机器使用独立命令。
+3. 在「发现与入职 → 配对新机器」填写机器名称、目标机器可访问的接收地址，并选择「macOS / Linux」或「Windows PowerShell」。使用上述 SSH 转发时填写 `http://127.0.0.1:4318`。若采集端已配置可信 TLS 证书且目标机器可直连，填写 `https://采集主机名:4318`。
 
-4. 验收机器在线、安装项和进程可见。远程候选经人事流程批准后作为「仅采集」员工。需常驻时，将 SSH 隧道和后台生成的重启命令交由目标机服务管理器维护，并沿用配对时的账号。
+4. 点击「生成启动命令」，复制「首次启动」，在目标机器另一个终端以运行 Agent 的系统账号执行。首次启动命令含有机器专用的配对密钥，请仅交给该机器的操作者。看到终端提示「机器已上线，持续采集中」后，在后台「采集机器」核对在线状态、安装项和进程。远程候选经人事流程批准后作为「仅采集」员工。
 
-客户端配对信息保存在 `~/.agent-office/collector.json`，也可用 `OFFICE_COLLECTOR_CONFIG` 指定路径。凭据失效时先在工作台撤销旧配对，移走旧配置后重新安装。直接连接采集端时，为其配置局域网监听地址和可信 TLS 证书，客户端使用 `https://采集主机名:4318`。
+配对保存在 `~/.agent-office/collector.json`，也可用 `OFFICE_COLLECTOR_CONFIG` 指定路径。需要常驻时，将后台的「配对后重新启动」命令交给目标机服务管理器，以原系统账号运行。使用 SSH 转发时也需要保持隧道运行。
+
+已配对的 macOS 或 Linux 机器可以执行一次上报来检查连接。Windows PowerShell 中将 `npx` 换成 `npx.cmd`。
+
+```sh
+npx --yes --registry=https://registry.npmjs.org --package=symbio-agent-collector@0.1.0 -- symbio-agent-collector run --once
+```
+
+凭据失效时，在工作台撤销旧配对，移走旧配置，再生成新的首次启动命令。目标机器无法访问 npm 时，可在「采集机器」下载独立脚本，使用 `node office-collector.mjs install <接收地址>` 完成配对，再执行 `node office-collector.mjs run`。
 
 ## 6. 备份、升级与回滚
 
