@@ -52,7 +52,7 @@ export function openStore(path) {
   const unread = db.prepare(`SELECT COUNT(*) AS total FROM events WHERE ${notificationFilter} AND seq > ?`);
   const audit = db.prepare(`SELECT * FROM events WHERE type IN (
     'settings.updated', 'catalogue.saved', 'catalogue.archived', 'agent.saved', 'team.saved',
-    'skill.saved', 'machine.paired', 'machine.revoked', 'candidate.reviewed',
+    'skill.saved', 'mcp.saved', 'machine.paired', 'machine.revoked', 'candidate.reviewed',
     'candidate.approved', 'candidate.dismissed', 'budget.updated', 'agent.dispatch',
     'human.saved', 'schedule.saved', 'layout.saved', 'layout.published',
     'account.registered', 'account.updated', 'account.email-bound'

@@ -312,6 +312,14 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
   }
 
   function render(snapshot, report, options, model = officeOverview(snapshot, report, options)) {
+    if (options.fullscreen) return `<div class="office-overview office-immersive">
+      ${map(snapshot, model, options)}
+      <div class="office-immersive-controls">
+        <span>拖拽旋转 · 滚轮缩放 · 右键拖拽平移</span>
+        <button type="button" data-action="office-zoom-reset">重置视角</button>
+        <button type="button" data-action="overview-fullscreen" data-id="map">退出大屏</button>
+      </div>
+    </div>`;
     const delta = model.completed - model.completedYesterday;
     const widgets = snapshot.layout?.published?.widgets ?? {};
     return `<div class="office-overview" data-node-id="5:5">

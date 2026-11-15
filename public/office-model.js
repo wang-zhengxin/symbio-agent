@@ -1,5 +1,6 @@
 import * as T from '/office-vendor/three.module.min.js';
-import { chatTables, desks, extraDesks, meetingTable, officeEast } from './office-presence.js';
+import { chatTables, desks, extraDesks, loungeSeats, meetingTable, officeEast } from './office-presence.js';
+import { officeWallHeight, wallSections } from './office-walls.js';
 
 const cube = new T.BoxGeometry(1, 1, 1);
 const round = new T.CylinderGeometry(.5, .5, 1, 16);
@@ -78,17 +79,12 @@ export function buildOffice(scene, workstationCount) {
     box(color,x+.054*dx,y,z+.054*dz,width-.21,height-.21,.02,angle);
     box(colors.brass,x+.071*dx,y-.08,z+.071*dz,width-.26,.065,.02,angle);
   }
-  function wallX(x1,x2,z,height,color) {
-    const width = x2-x1, x = (x1+x2)/2;
-    box(color,x,height/2,z,width,height,.16);
-    box(colors.white,x,height+.032,z,width+.04,.064,.22);
-    box(colors.edge,x,.085,z+.10,width,.12,.04);
+  const walls = [];
+  function wallX(x1,x2,z,color) {
+    walls.push({x1,x2,z1:z,z2:z,color});
   }
-  function wallZ(z1,z2,x,height,color) {
-    const depth = z2-z1, z = (z1+z2)/2;
-    box(color,x,height/2,z,.16,height,depth);
-    box(colors.white,x,height+.032,z,.22,.064,depth+.03);
-    box(colors.edge,x+.10,.085,z,.04,.12,depth);
+  function wallZ(z1,z2,x,color) {
+    walls.push({x1:x,x2:x,z1,z2,color});
   }
   function blinds(x,y,z,width,height,alongZ = false) {
     const angle = alongZ ? Math.PI / 2 : 0;
@@ -180,23 +176,23 @@ export function buildOffice(scene, workstationCount) {
   box(0x9b9284,-6.85,.02,5.85,5.9,.035,3.63);
   box(0xaaa79b,-2.7,.019,-.2,8.4,.028,5.5);
 
-  wallX(-10,10,-8,2.78,colors.sage);
-  wallZ(-8,2.9,-10,2.76,colors.slate);
-  wallZ(2.9,7.98,-10,2.1,colors.plum);
-  wallZ(-8,-2.95,10,2.28,colors.slate);
+  wallX(-10,10,-8,colors.sage);
+  wallZ(-8,2.9,-10,colors.slate);
+  wallZ(2.9,8,-10,colors.plum);
+  wallZ(-8,-2.95,10,colors.slate);
   if (east > 10) {
     const width = east-10, center = (east+10)/2;
     box(colors.edge,center,-.29,.1,width,.43,6.1);
     box(colors.dark,center,-.102,.1,width,.166,6.1);
     box(colors.carpet,center,-.014,.1,width,.028,6.1);
-    wallX(10,east,-2.95,1.42,colors.sage);
-    wallZ(-2.95,3.15,east,.46,colors.sage);
+    wallX(10,east,-2.95,colors.sage);
+    wallZ(-2.95,3.15,east,colors.sage);
     extraDesks(workstationCount).forEach(([x,z],index) => desk(x,z,desks.length+index));
-  } else wallZ(-2.95,2.75,10,.52,colors.sage);
-  wallX(-9.9,-5.25,-3.63,2.04,colors.slate);
-  wallZ(-7.92,-3.62,-3.6,2.25,colors.slate);
-  wallX(3.28,7.73,-3.58,1.86,colors.sage);
-  wallZ(-7.92,-3.58,3.28,2.31,colors.slate);
+  } else wallZ(-2.95,2.92,10,colors.sage);
+  wallX(-10,-5.25,-3.63,colors.slate);
+  wallZ(-8,-3.63,-3.6,colors.slate);
+  wallX(3.28,7.73,-3.58,colors.sage);
+  wallZ(-8,-3.58,3.28,colors.slate);
   blinds(-7.25,1.76,-7.85,2.33,1.22);
   blinds(-.34,1.76,-7.85,2.4,1.22);
   blinds(6.75,1.78,-7.85,2.2,1.23);
@@ -265,17 +261,16 @@ export function buildOffice(scene, workstationCount) {
     cylinder(colors.lightWood,x,.68,z,.82,.11,.82);
     cylinder(colors.dark,x,.34,z,.14,.65,.14);
     cylinder(colors.dark,x,.055,z,.5,.08,.5);
-    chair(x-.76,z,Math.PI/2,colors.sage);
-    chair(x+.76,z,-Math.PI/2,colors.sage);
     cylinder(colors.paper,x,.79,z-.17,.126,.15,.126);
   }
+  for (const seat of loungeSeats) chair(seat.x,seat.z,seat.angle,colors.sage);
 
-  // Cutaway meeting room. The gap in the side wall is the entrance.
-  wallX(3.22,9.9,2.92,1.17,colors.slate);
+  // The gap in the meeting room's side wall is the entrance.
+  wallX(3.22,10,2.92,colors.slate);
   blinds(6.23,.72,3.04,3.91,.75);
-  wallZ(3,4.1,3.22,.97,colors.slate);
-  wallZ(5.39,7.98,3.22,.76,colors.slate);
-  wallZ(2.92,7.95,10,1.08,colors.slate);
+  wallZ(2.92,4.1,3.22,colors.slate);
+  wallZ(5.39,8,3.22,colors.slate);
+  wallZ(2.92,8,10,colors.slate);
   framed(9.87,.74,5.18,'left',1.87,.64,colors.white);
   const {x:mx,z:mz} = meetingTable;
   table(mx,mz,1.79,3.05,.76);
@@ -293,6 +288,17 @@ export function buildOffice(scene, workstationCount) {
   box(colors.paper,8.89,1.253,3.64,.49,.037,.32);
   [[-9.24,-7.18],[-9.3,2.78],[1.15,-7.27],[9.26,1.53],[8.94,7.24],[-4.95,7.36]]
     .forEach(([x,z],i) => plant(x,z,0,i%2 ? .92 : 1.3));
+
+  for (const layer of [
+    {thickness:.16, y:officeWallHeight/2, height:officeWallHeight},
+    {thickness:.22, y:officeWallHeight+.032, height:.064, color:colors.white},
+    {thickness:.24, y:.085, height:.12, color:colors.edge},
+  ]) {
+    const segments = layer.color === undefined ? walls : walls.map(wall => ({...wall,color:layer.color}));
+    for (const {x1,x2,z1,z2,color} of wallSections(segments,layer.thickness)) {
+      box(color,(x1+x2)/2,layer.y,(z1+z2)/2,x2-x1,layer.height,z2-z1);
+    }
+  }
 
   const matrix = new T.Object3D();
   for(const {shape, color, pieces} of batches.values()) {

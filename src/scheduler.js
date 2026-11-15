@@ -65,10 +65,14 @@ export function createScheduler({store, office, space, data, concurrency, execut
       await space?.prepare(run, cwd, controller.signal);
       const runtime = runtimes.get(run.agent.runtime);
       if (!runtime) throw new Error('该员工没有平台执行权限');
+      const currentBindings = store.get('agent', run.agentId)?.mcpServerIds ?? [];
+      const mcpServers = run.kind === 'task' ? (run.agent.mcpServerIds ?? [])
+        .filter(id => currentBindings.includes(id))
+        .map(id => store.get('mcpServer', id)).filter(server => server?.enabled) : [];
       try {
         await runtime({emit, signal: controller.signal, run, cwd,
           executable: run.agent.runtime === 'pi' ? piExecutable : executable, piProviderExtension,
-          tools: companyTools(store, office, run)});
+          mcpServers, tools: companyTools(store, office, run)});
       } finally {
         emit('runtime.finished', {});
       }

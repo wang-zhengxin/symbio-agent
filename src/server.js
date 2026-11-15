@@ -86,6 +86,7 @@ const mime = {
   'office-presence.js': 'text/javascript; charset=utf-8',
   'office-scene.js': 'text/javascript; charset=utf-8',
   'office-model.js': 'text/javascript; charset=utf-8',
+  'office-walls.js': 'text/javascript; charset=utf-8',
   'office-figure.js': 'text/javascript; charset=utf-8',
   'office-scene.css': 'text/css; charset=utf-8',
   'workspace.js': 'text/javascript; charset=utf-8',
@@ -213,6 +214,7 @@ const saveRoutes = {
   '/api/agents': office.saveAgent,
   '/api/teams': input => office.saveNamed('team', input),
   '/api/skills': input => office.saveNamed('skill', input),
+  '/api/mcp-servers': office.saveMcpServer,
   '/api/projects': input => office.saveNamed('project', input),
   '/api/tasks': office.saveTask,
   '/api/budgets': office.setBudget,
@@ -236,15 +238,16 @@ function requireUser(req, path, spaceRoute) {
 }
 
 function workspaceState(user) {
-  const records = office.snapshot();
+  const {mcpServers, ...records} = office.snapshot();
   const workspaceData = workspace.snapshot();
   const configuration = settings.snapshot();
   const base = {...records, ...workspaceData, user, settings:configuration, unread:settings.inbox(false, user).unread};
-  if (user.role === 'admin') return {...base, ...discovery.snapshot(),
+  if (user.role === 'admin') return {...base, mcpServers, ...discovery.snapshot(),
     collector:{listening:Boolean(collectorServer?.listening), port:collectorPort, protocol:collectorProtocol,
       loopback, defaultAddress:defaultCollectorAddress, packageSpec:collectorPackageSpec,
       tunnelHost:['0.0.0.0','::'].includes(collectorHost) ? '127.0.0.1' : collectorAddressHost}};
   return {...base, agents:records.agents.map(({id, name, teamId}) => ({id, name, teamId})),
+    skills:records.skills.map(({id, name, description}) => ({id, name, description})),
     humans:workspaceData.humans.map(({id, name, teamId}) => ({id, name, teamId})),
     runs:records.runs.map(({error, usage, ...run}) => run),
     ledger:[], conversations:[], machines:[], candidates:[],
@@ -317,6 +320,12 @@ const server = createServer(async (req, res) => {
       }
     }
     if (req.method === 'GET') {
+      if (path === '/office-vendor/OrbitControls.js') {
+        const source = readFileSync(join(root, 'node_modules/three/examples/jsm/controls/OrbitControls.js'), 'utf8')
+          .replace("from 'three'", "from '/office-vendor/three.module.min.js'");
+        res.writeHead(200, {'Content-Type':mime['app.js'], 'Cache-Control':'no-cache'});
+        return res.end(source);
+      }
       const threeFile = path.match(/^\/office-vendor\/(three\.(?:module|core)\.min\.js)$/);
       if (threeFile) {
         const source = readFileSync(join(root, 'node_modules', 'three', 'build', threeFile[1]));

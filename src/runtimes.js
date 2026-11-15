@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
-import { writeFile, rm, stat } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { mkdtemp, readFile, writeFile, rm, stat, symlink } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
+import { runtimeMcpConfig } from './agent-capabilities.js';
 
 export function redact(value) {
   return String(value ?? '')
@@ -43,7 +45,8 @@ export function runtimeInstructions(run, runtime = run.agent.runtime) {
     `你是本地 Agent 公司员工 ${name}，岗位 ${role}。用中文回复。`,
     run.workspaceContext && `工作区约定：\n${run.workspaceContext}`,
     personality && `工作风格：${personality}`, scope && `职责：${scope}`,
-    ...(skills ?? []).filter(Boolean).map(skill => `技能 ${skill.name}：${skill.description}`),
+    ...(skills ?? []).filter(Boolean).map(skill =>
+      `技能 ${skill.name}：${skill.description}` + (skill.instructions ? `\n${skill.instructions}` : '')),
     run.kind === 'conversation' ? '这是讨论发言，只提交意见和结论。'
       : run.kind === 'comment' ? '这是任务讨论中的回复。直接输出要发布的评论正文，不执行原任务，不修改文件。'
         : '在职责内执行任务。完成后汇报结果和验证情况。',
@@ -52,7 +55,28 @@ export function runtimeInstructions(run, runtime = run.agent.runtime) {
   ].filter(Boolean).join('\n');
 }
 
-export async function piRuntime({emit, signal, run, cwd, executable, piProviderExtension, tools}) {
+async function setupPiMcp(directory, servers) {
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  const source = configured
+    ? resolve(configured.replace(/^~(?=\/|$)/, homedir())) : join(homedir(), '.pi', 'agent');
+  for (const name of ['auth.json', 'models.json', 'models-store.json']) {
+    const path = join(source, name);
+    if ((await stat(path).catch(() => null))?.isFile()) await symlink(path, join(directory, name));
+  }
+  const saved = await readFile(join(source, 'settings.json'), 'utf8').catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return '{}';
+  });
+  const {defaultProvider, defaultModel, defaultThinkingLevel, enabledModels} = JSON.parse(saved);
+  await writeFile(join(directory, 'settings.json'), JSON.stringify({
+    defaultProvider, defaultModel, defaultThinkingLevel, enabledModels,
+  }), {mode:0o600});
+  await writeFile(join(directory, 'mcp.json'), JSON.stringify({
+    mcpServers:runtimeMcpConfig(servers, 'pi'), autoEnableCodemode:false,
+  }), {mode:0o600});
+}
+
+export async function piRuntime({emit, signal, run, cwd, executable, piProviderExtension, tools, mcpServers = []}) {
   signal.throwIfAborted();
   if (piProviderExtension) {
     if (!isAbsolute(piProviderExtension)) throw new Error('OFFICE_PI_PROVIDER_EXTENSION 必须是扩展入口的绝对路径。');
@@ -61,14 +85,25 @@ export async function piRuntime({emit, signal, run, cwd, executable, piProviderE
   }
   const promptPath = join(cwd, '.office-pi-instructions');
   await writeFile(promptPath, run.instructions ?? runtimeInstructions(run, 'pi'), {mode: 0o600, flag: 'wx'});
+  let piDirectory;
   try {
+    if (mcpServers.length) {
+      piDirectory = await mkdtemp(join(tmpdir(), 'office-pi-mcp-'));
+      await setupPiMcp(piDirectory, mcpServers);
+    }
     signal.throwIfAborted();
-    const args = ['--mode', 'json', '--no-session', '--no-tools', '--no-extensions', '--no-mcp',
+    const args = ['--mode', 'json', '--no-session', '--no-extensions',
       '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-themes', '--no-approve',
       '--append-system-prompt', promptPath];
+    if (piDirectory) args.push('--no-builtin-tools', '--extension', 'builtin:mcp',
+      '--exclude-tools', 'list_mcp_resources,list_mcp_resource_templates,read_mcp_resource');
+    else args.push('--no-tools', '--no-mcp');
     if (piProviderExtension) args.push('--extension', piProviderExtension);
     if (run.agent.model) args.push('--model', run.agent.model);
-    const child = spawn(executable, args, {cwd, stdio: ['pipe', 'pipe', 'pipe']});
+    const child = spawn(executable, args, {
+      cwd, stdio: ['pipe', 'pipe', 'pipe'],
+      env:piDirectory ? {...process.env, PI_CODING_AGENT_DIR:piDirectory} : process.env,
+    });
     let stderr = '';
     let lines = '';
     let pending = '';
@@ -118,6 +153,16 @@ export async function piRuntime({emit, signal, run, cwd, executable, piProviderE
         case 'auto_retry_start':
           emit('runtime.error', {summary: clip(event.errorMessage, 1800), willRetry: true});
           break;
+        case 'tool_execution_start':
+        case 'tool_execution_end': {
+          if (!event.toolName?.startsWith('mcp__')) break;
+          const started = event.type === 'tool_execution_start';
+          const status = started ? 'inProgress' : event.isError ? 'failed' : 'completed';
+          emit(started ? 'tool.started' : event.isError ? 'tool.failed' : 'tool.completed', {
+            id:event.toolCallId, label:'调用外部工具', summary:clip(event.toolName, 128), status,
+          });
+          break;
+        }
       }
     }
     child.stderr.setEncoding('utf8').on('data', chunk => { stderr = (stderr + chunk).slice(-3000); });
@@ -178,7 +223,10 @@ export async function piRuntime({emit, signal, run, cwd, executable, piProviderE
       clearTimeout(killTimer);
     }
   } finally {
-    await rm(promptPath, {force: true});
+    await Promise.all([
+      rm(promptPath, {force:true}),
+      piDirectory && rm(piDirectory, {recursive:true, force:true}),
+    ]);
   }
 }
 
@@ -191,8 +239,9 @@ function observeFirstOutput(emit) {
   };
 }
 
-export async function codexRuntime({emit, signal, run, cwd, tools, executable}) {
-  const child = spawn(executable, ['app-server', '--listen', 'stdio://'], {
+export async function codexRuntime({emit, signal, run, cwd, tools, executable, mcpServers = []}) {
+  const selected = runtimeMcpConfig(mcpServers, 'codex');
+  const child = spawn(executable, ['-c', 'features.plugins=false', 'app-server', '--listen', 'stdio://'], {
     cwd, stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -289,6 +338,9 @@ export async function codexRuntime({emit, signal, run, cwd, tools, executable}) 
         case 'configWarning':
           emit('runtime.warning', {summary: clip(p.message || p.summary, 1200)});
           break;
+        case 'mcpServer/startupStatus':
+          if (p.status === 'failed') emit('runtime.warning', {summary:clip('MCP 连接失败：' + (p.error || p.name), 1200)});
+          break;
         case 'turn/plan/updated':
           emit('plan.updated', {plan: (p.plan ?? []).slice(0, 100).map(step => ({
             step: clip(step.step, 1200), status: step.status,
@@ -313,7 +365,8 @@ export async function codexRuntime({emit, signal, run, cwd, tools, executable}) 
           const failed = ['failed', 'declined'].includes(item.status) || item.success === false;
           emit(!completed ? 'tool.started' : failed ? 'tool.failed' : 'tool.completed', {
             id: item.id, label, status: item.status ?? (completed ? 'completed' : 'inProgress'),
-            summary: clip(item.command || item.tool || item.query || item.changes?.map(change => change.path).join(', '), 1000),
+            summary: clip(item.type === 'mcpToolCall' ? [item.server, item.tool].filter(Boolean).join(' / ')
+              : item.command || item.tool || item.query || item.changes?.map(change => change.path).join(', '), 1000),
             exitCode: item.exitCode ?? null,
           });
           break;
@@ -351,11 +404,14 @@ export async function codexRuntime({emit, signal, run, cwd, tools, executable}) 
       capabilities: {experimentalApi: true},
     });
     send({method: 'initialized'});
+    const {config} = await request('config/read', {cwd});
+    const disabled = Object.fromEntries(Object.keys(config?.mcp_servers ?? {}).map(name => [name, {enabled:false}]));
     const started = await request('thread/start', {
       cwd, ephemeral: true, ...(run.agent.model ? {model: run.agent.model} : {}),
       sandbox: run.kind === 'conversation' ? 'read-only' : run.agent.sandbox,
       approvalPolicy: 'never',
       config: {
+        mcp_servers: {...disabled, ...selected},
         'sandbox_workspace_write.network_access': false,
         'sandbox_workspace_write.writable_roots': [],
         'sandbox_workspace_write.exclude_tmpdir_env_var': true,

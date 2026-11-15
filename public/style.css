@@ -104,6 +104,7 @@ main { padding-block: 1.8rem 4rem; }
 .actions { justify-content: flex-start; gap: .45rem; }
 .actions button { font-size: .85rem; }
 .cards, .stack { display: grid; gap: .7rem; }
+#editor [hidden] { display: none; }
 .card, .panel, .column { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: .95rem; }
 .card { display: grid; gap: .55rem; min-width: 0; overflow-wrap: anywhere; }
 .card p, .description { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .89rem; }

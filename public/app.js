@@ -1,7 +1,7 @@
 import { createOverview, officeOverview } from './overview.js';
 import { createWorkspaceView } from './workspace.js';
 import { avatarFields, officeAvatars, resolveAvatar } from './office-avatars.js';
-import { createOfficeStrolls, officePresence } from './office-presence.js';
+import { createOfficeStrolls, officePresence, placeOfficeActors } from './office-presence.js';
 
 const el = id => document.getElementById(id);
 const modalOpeners = new WeakMap();
@@ -58,7 +58,7 @@ const notificationLabels = {review: '任务待验收', failures: '执行失败�
 const settingsGroups = {
   '个人': {account: '我的账户', preferences: '偏好', notifications: '通知'},
   '工作区': {workspace: '基本资料', workflow: '任务流程', labels: '标签', properties: '自定义字段'},
-  '管理': {users: '用户管理', runtime: '运行与采集', organization: '组织与预算', audit: '变更记录'},
+  '管理': {users: '用户管理', runtime: '运行与采集', organization: '组织与预算', capabilities:'Skills 与 MCP', audit: '变更记录'},
 };
 const settingsTitles = Object.assign({}, ...Object.values(settingsGroups));
 const memberPages = new Set(['tasks', 'settings', 'inbox', 'help']);
@@ -219,12 +219,14 @@ function endOverviewFullscreen() {
 }
 
 function toggleOverviewFullscreen(mode) {
-  if (fullscreenMode === mode) {
+  if (fullscreenMode) {
     endOverviewFullscreen();
   } else {
     fullscreenMode = mode;
+    officeFlat = false;
+    office3dUnavailable = false;
     document.body.classList.add('overview-expanded');
-    document.body.classList.toggle('office-map-focus', mode === 'map');
+    document.body.classList.add('office-map-focus');
     if (!document.fullscreenElement && el('main').requestFullscreen) {
       el('main').requestFullscreen().catch(() => {});
     }
@@ -1027,14 +1029,24 @@ function settingsBody() {
       const budget = data.ledger.find(item => item.scope === 'company');
       return settingsPanel('组织与权限', rows([
         ['员工', data.agents.length + ' 名'], ['小组', data.teams.length + ' 个'], ['技能', data.skills.length + ' 项'],
-      ]), actions(btn('goto-people', '管理员工'), btn('team-edit', '创建小组'), btn('skill-edit', '创建技能'))) +
+      ]), actions(btn('goto-people', '管理员工'), btn('team-edit', '创建小组'), btn('settings-section', 'Skills 与 MCP', 'capabilities'))) +
         settingsPanel('团队', data.teams.length ? `<div class="grid">${data.teams.map(team => namedCard('team', team)).join('')}</div>` : empty('暂无团队。')) +
-        settingsPanel('技能', data.skills.length ? `<div class="grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>` : empty('暂无技能。')) +
         settingsPanel('Token 预算', rows([
           ['公司总额度', budget?.limit == null ? '未设置' : number(budget.limit)],
           ['可分配额度', number(budget?.available)],
         ]), actions(btn('budget-edit', '设置预算'), btn('goto-finance', '查看账本')));
     }
+    case 'capabilities':
+      return settingsPanel('Skills', data.skills.length
+        ? `<div class="grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>`
+        : empty('暂无技能。可上传 SKILL.md 或直接填写。'), btn('skill-edit', '创建技能', '', true)) +
+        settingsPanel('MCP 服务', data.mcpServers.length
+          ? `<div class="grid">${data.mcpServers.map(server => `<article class="card">
+            <div class="card-head"><h3>${escape(server.name)}</h3>${btn('mcp-edit', '编辑', server.id)}</div>
+            <p>${server.transport === 'stdio' ? 'stdio' : 'Streamable HTTP'} · ${server.enabled ? '已启用' : '已停用'}</p>
+            <p>${escape(server.tools.join('、'))}</p>
+          </article>`).join('')}</div>`
+          : empty('暂无 MCP 服务。添加后可在员工档案中授权。'), btn('mcp-edit', '添加 MCP 服务', '', true));
     case 'audit':
       return settingsPanel('最近 100 条管理变更', auditData?.length ? `<div class="table"><table>
         <thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead>
@@ -1086,7 +1098,7 @@ function managementEventName(event) {
   return ({
     'settings.updated': '保存设置', 'catalogue.saved': '保存分类配置',
     'catalogue.archived': event.payload.archived ? '归档分类配置' : '恢复分类配置',
-    'agent.saved': '保存员工', 'team.saved': '保存小组', 'skill.saved': '保存技能',
+    'agent.saved': '保存员工', 'team.saved': '保存小组', 'skill.saved': '保存技能', 'mcp.saved':'保存 MCP 服务',
     'machine.paired': '创建机器配对', 'machine.revoked': '撤销机器配对',
     'candidate.reviewed': '提交入职档案', 'candidate.approved': '确认入职',
     'candidate.dismissed': '忽略候选', 'budget.updated': '更新预算',
@@ -1329,7 +1341,9 @@ async function refresh() {
     if (!officeScene && !isMember()) {
       const actors = officePresence(snapshot,officeOverview(snapshot,null,timeOptions()));
       const idle = new Set(actors.filter(actor => actor.state === 'idle' && Number.isInteger(actor.seatIndex)).map(actor => actor.key));
-      officeStrolls(idle,performance.now());
+      const reserved = [...placeOfficeActors(actors,snapshot.workstationCount).values()]
+        .filter(position => position.area === 'lounge');
+      officeStrolls(idle,performance.now(),reserved);
     }
     if (overviewDetails && el('overview-dialog').open) showOverviewDetails(overviewDetails);
     if (task) showTaskDetail(taskId, task);
@@ -1373,8 +1387,8 @@ function connect() {
 
 const input = (label, key, value = '', {required = false, type = 'text', min, max, step} = {}) =>
   `<label>${escape(label)}<input name="${escape(key)}" type="${type}" value="${escape(value)}"${required ? ' required' : ''}${min == null ? '' : ` min="${min}"`}${max == null ? '' : ` max="${max}"`}${step ? ` step="${step}"` : ''}></label>`;
-const area = (label, key, value = '', required = false) =>
-  `<label>${label}<textarea name="${key}" maxlength="8000"${required ? ' required' : ''}>${escape(value)}</textarea></label>`;
+const area = (label, key, value = '', required = false, maxLength = 8000) =>
+  `<label>${label}<textarea name="${key}" maxlength="${maxLength}"${required ? ' required' : ''}>${escape(value)}</textarea></label>`;
 function select(label, key, options, value, {multiple = false, required = false} = {}) {
   const selected = multiple ? value ?? [] : [value];
   const field = `<select name="${escape(key)}"${multiple ? ' multiple size="4"' : ''}${required ? ' required' : ''}>
@@ -1405,9 +1419,60 @@ function editNamed(kind, id) {
   const projectFields = kind === 'project' ? input('负责人', 'owner', value.owner) +
     input('截止日期', 'dueDate', value.dueDate, {type:'date'}) +
     input('Git 仓库地址（可选）', 'repositoryUrl', value.repositoryUrl, {type:'url'}) : '';
+  const skillFields = kind === 'skill' ? `<label>上传 SKILL.md<input id="skill-file" type="file" accept=".md,text/markdown"></label>` +
+    area('SKILL.md 正文', 'instructions', value.instructions, false, 32_000) : '';
   edit((id ? '编辑' : '新建') + label, input('名称', 'name', value.name, {required: true}) +
-    area('说明', 'description', value.description) + projectFields,
+    area('说明', 'description', value.description) + projectFields + skillFields,
   form => api(kind + 's', {...Object.fromEntries(form), id}));
+  if (kind !== 'skill') return;
+  const picker = el('skill-file');
+  picker.addEventListener('change', async () => {
+    const file = picker.files[0];
+    if (!file) return;
+    const error = el('form-error');
+    try {
+      if (file.size > 128_000) throw new Error('SKILL.md 正文最多 32000 字');
+      const content = await file.text();
+      if (!picker.isConnected || picker.files[0] !== file) return;
+      if (content.length > 32_000) throw new Error('SKILL.md 正文最多 32000 字');
+      const fields = el('editor').elements;
+      const frontMatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? '';
+      const metadata = key => frontMatter.match(new RegExp('^' + key + ':[ \\t]*(.+)$', 'm'))?.[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+      fields.instructions.value = content;
+      fields.namedItem('name').value ||= metadata('name') || file.name.replace(/\.md$/i, '');
+      fields.description.value ||= metadata('description') || '';
+      error.textContent = '';
+    } catch (failure) {
+      if (picker.isConnected) error.textContent = failure.message;
+    }
+  });
+}
+
+function editMcp(id) {
+  const server = find('mcpServers', id) ?? {};
+  edit(id ? '编辑 MCP 服务' : '添加 MCP 服务',
+    input('服务名称', 'name', server.name, {required:true}) +
+    select('连接方式', 'transport', [['http','Streamable HTTP'], ['stdio','本机 stdio']], server.transport ?? 'http') +
+    '<div id="mcp-http" class="stack">' + input('MCP 地址', 'url', server.url, {type:'url'}) +
+    input('Bearer Token 环境变量（可选）', 'tokenEnv', server.tokenEnv) + '</div>' +
+    '<div id="mcp-stdio" class="stack">' + input('可执行文件绝对路径', 'command', server.command) +
+    area('命令参数（JSON 字符串数组）', 'args', JSON.stringify(server.args ?? [])) +
+    '<p class="description">服务进程使用工作台账号运行。请使用受信任的可执行文件。</p></div>' +
+    area('允许的工具（每行一个准确名称）', 'tools', server.tools?.join('\n'), true, 4000) +
+    checkbox('启用服务', 'enabled', server.enabled ?? true),
+    form => api('mcp-servers', {...Object.fromEntries(form), id, enabled:form.has('enabled')}));
+  const {transport, url, command} = el('editor').elements;
+  const update = () => {
+    const local = transport.value === 'stdio';
+    el('mcp-http').hidden = local;
+    el('mcp-stdio').hidden = !local;
+    url.disabled = local;
+    command.disabled = !local;
+    url.required = !local;
+    command.required = local;
+  };
+  transport.addEventListener('change', update);
+  update();
 }
 
 const spaceRoot = id => 'projects/' + id + '/space';
@@ -1511,7 +1576,7 @@ async function uploadSpaceFile(projectId) {
     }, '上传');
 }
 
-const runtimeOptions = [['codex', '本机 Codex（新会话）'], ['pi', '本机 Pi（仅文本）'], ['demo', '演示运行器']];
+const runtimeOptions = [['codex', '本机 Codex（新会话）'], ['pi', '本机 Pi（新会话）'], ['demo', '演示运行器']];
 const observedOption = ['observed', '仅采集（无平台执行权限）'];
 
 function agentFields(agent, runtimes, required = false) {
@@ -1523,17 +1588,26 @@ function agentFields(agent, runtimes, required = false) {
     area('职责范围', 'scope', agent.scope, required) +
     select('技能（多选）', 'skillIds', options('skills'), agent.skillIds, {multiple: true}) +
     select('运行方式', 'runtime', runtimes, agent.runtime) +
+    (runtimes.some(([runtime]) => ['codex', 'pi'].includes(runtime)) && data.mcpServers?.length
+      ? select('MCP 服务（多选）', 'mcpServerIds', data.mcpServers.map(server =>
+        [server.id, server.name + (server.enabled ? '' : '（已停用）')]), agent.mcpServerIds, {multiple:true})
+      : '') +
     (runtimes.some(([runtime]) => runtime !== 'observed') ? input('模型（可选，留空沿用本机配置）', 'model', agent.model) : '') +
     (runtimes.some(([runtime]) => runtime === 'codex' || runtime === 'demo')
       ? select('文件权限', 'sandbox', [['read-only', '只读'], ['workspace-write', '执行目录可写']], agent.sandbox)
       : '') +
-    '<p class="description">Pi 仅处理文本。仅采集的员工没有平台执行权限。人事与财务的 Codex 执行使用只读权限。</p>';
+    '<p class="description">MCP 授权适用于任务执行。仅采集的员工没有平台执行权限。人事与财务的 Codex 执行使用只读文件权限。</p>';
 }
 
 function updateFilePermission() {
-  const {runtime, sandbox} = el('editor').elements;
-  if (!sandbox) return;
-  const update = () => { sandbox.disabled = runtime.value === 'pi'; };
+  const {runtime, sandbox, mcpServerIds} = el('editor').elements;
+  const update = () => {
+    if (sandbox) sandbox.disabled = runtime.value === 'pi';
+    if (mcpServerIds) {
+      mcpServerIds.disabled = !['codex','pi'].includes(runtime.value);
+      mcpServerIds.closest('label').hidden = mcpServerIds.disabled;
+    }
+  };
   runtime.addEventListener('change', update);
   update();
 }
@@ -1543,7 +1617,7 @@ function editAgent(id) {
   const runtimes = agent.candidateId
     ? [observedOption, ...runtimeOptions].filter(([id]) => id === agent.runtime) : runtimeOptions;
   edit(id ? '员工配置' : '创建员工', agentFields(agent, runtimes, Boolean(agent.candidateId)),
-    form => api('agents', {...Object.fromEntries(form), id, skillIds: form.getAll('skillIds')}));
+    form => api('agents', {...Object.fromEntries(form), id, skillIds:form.getAll('skillIds'), mcpServerIds:form.getAll('mcpServerIds')}));
   updateFilePermission();
 }
 
@@ -1557,7 +1631,8 @@ function editCandidate(id) {
   edit('人事入职档案',
     `<p class="description">${escape(name('machines', candidate.machineId))} · ${escape(providerLabels[candidate.provider])}</p>` +
     agentFields(profile, runtimes, true),
-    form => api('candidates/' + id + '/review', {...Object.fromEntries(form), skillIds: form.getAll('skillIds')}),
+    form => api('candidates/' + id + '/review', {...Object.fromEntries(form),
+      skillIds:form.getAll('skillIds'), mcpServerIds:form.getAll('mcpServerIds')}),
     '提交入职档案');
   updateFilePermission();
 }
@@ -1569,7 +1644,8 @@ function approveCandidate(id) {
     <p>小组 ${escape(name('teams', draft.teamId))}</p>
     <p>人物形象 ${escape(resolveAvatar(draft).name)}</p>
     <p>技能 ${escape(draft.skillIds.map(id => name('skills', id)).join('、') || '—')}</p>
-    <p>权限 ${draft.runtime === 'observed' ? '仅采集' : draft.runtime === 'pi' ? '本机仅文本执行' : draft.sandbox === 'workspace-write' ? '本机执行目录可写' : '本机只读执行'}</p></div>`,
+    <p>MCP ${escape((draft.mcpServerIds ?? []).map(id => name('mcpServers', id)).join('、') || '—')}</p>
+    <p>权限 ${draft.runtime === 'observed' ? '仅采集' : draft.runtime === 'pi' ? '本机 Pi 执行' : draft.sandbox === 'workspace-write' ? '本机执行目录可写' : '本机只读执行'}</p></div>`,
     () => api('candidates/' + id + '/approve', {reviewVersion}), '批准入职');
 }
 
@@ -1903,6 +1979,7 @@ async function action(type, id, anchor) {
     case 'team-edit':
     case 'skill-edit':
     case 'project-edit': editNamed(type.split('-')[0], id); break;
+    case 'mcp-edit': editMcp(id); break;
     case 'task-edit': editTask(id); break;
     case 'conversation-task': editTask('', id); break;
     case 'budget-edit': editBudget(); break;

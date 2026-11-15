@@ -1,4 +1,5 @@
 import * as T from '/office-vendor/three.module.min.js';
+import { OrbitControls } from '/office-vendor/OrbitControls.js';
 import { officeStates } from './office-avatars.js';
 import { createOfficeFigure } from './office-figure.js';
 import { buildOffice, officeLights } from './office-model.js';
@@ -35,7 +36,7 @@ function walkPath(from, to) {
   const meetingExit = [{x:4.02,z:4.68},{x:2.14,z:4.68},{x:2.14,z:2.3}];
   const insideMeeting = from.x > 3.22 && from.z > 2.92;
   const leaving = from.area === 'meeting' && insideMeeting && to.area !== 'meeting' ? meetingExit
-    : from.area === 'stroll' ? from.exit.filter(point => point.z <= from.z + .1)
+    : ['stroll','lounge'].includes(from.area) ? from.exit
       : from.area === 'desk' && from.z <= 2.3 ? from.exit : [];
   const entering = to.area === 'meeting' && !insideMeeting ? meetingExit
     : to.area !== 'meeting' ? to.exit ?? [] : [];
@@ -62,30 +63,45 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
   surface.append(renderer.domElement,labels,zoneLabels);
   host.append(surface);
 
-  let yaw = .66, targetYaw = yaw, zoom = 1, width = 1, height = 1, selected, showNames = true;
+  let zoom = 1, width = 1, height = 1, selected, showNames = true;
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.copy(target);
+  controls.minPolarAngle = .04;
+  controls.maxPolarAngle = Math.PI / 2 - .04;
+  controls.minZoom = .35;
+  controls.maxZoom = 4;
+  controls.screenSpacePanning = true;
   let frame, lastTime = 0, changed = true;
   let visits = new Map();
   const records = new Map();
   const zoneMarkers = new Map();
   const idleAtDesk = new Set();
+  let reservedLounge = [];
   const none = new Set();
   const ray = new T.Raycaster();
   const pointer = new T.Vector2();
+  controls.addEventListener('change', () => { changed = true; });
+
+  function resetView() {
+    const distance = 31 + (east-10)/2;
+    controls.target.copy(target);
+    camera.position.set(target.x + Math.sin(.66)*distance,distance*22.7/31,Math.cos(.66)*distance);
+    camera.zoom = zoom;
+    controls.update();
+    fit();
+  }
 
   function fit() {
-    const distance = 31 + (east-10)/2;
-    camera.position.set(target.x + Math.sin(yaw)*distance,distance*22.7/31,Math.cos(yaw)*distance);
     camera.far = 100 + east;
-    camera.lookAt(target);
     camera.updateMatrixWorld();
     let extentX = 0, extentY = 0;
     for (const corner of bounds) {
-      cameraPoint.copy(corner).applyMatrix4(camera.matrixWorldInverse);
+      cameraPoint.copy(corner).sub(target).applyQuaternion(camera.quaternion.clone().invert());
       extentX = Math.max(extentX,Math.abs(cameraPoint.x));
       extentY = Math.max(extentY,Math.abs(cameraPoint.y));
     }
     const aspect = width/height;
-    const half = Math.max(extentY*1.075, extentX/aspect*1.075)/zoom;
+    const half = Math.max(extentY*1.075, extentX/aspect*1.075, 1);
     camera.left = -half*aspect;
     camera.right = half*aspect;
     camera.top = half;
@@ -123,7 +139,7 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
     record.destination = destination;
     const {button} = record.label;
     const {actor} = record;
-    const location = destination.area === 'stroll' ? '休息区' :
+    const location = destination.area === 'stroll' ? (destination.seated ? '休息区 · 坐下休息' : '休息区 · 散步') :
       destination.area === 'desk' ? workstationLabel(actor.seatIndex) : '';
     const title = [actor.name,actor.label,location].filter(Boolean).join(' · ');
     button.dataset.area = destination.area;
@@ -142,9 +158,10 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
       target.x = (east-10)/2;
       bounds = [-10.25,east+.25].flatMap(x => [-8.25,8.25].flatMap(z =>
         [-.5,2.85].map(y => new T.Vector3(x,y,z))));
-      fit();
+      resetView();
     }
     const positions = placeOfficeActors(actors, count);
+    reservedLounge = [...positions.values()].filter(position => position.area === 'lounge');
     const visible = actors.filter(actor => positions.has(actor.key));
     const keep = new Set(visible.map(actor => actor.key));
     for (const [key, record] of records) if (!keep.has(key)) remove(key,record);
@@ -177,8 +194,9 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
       if (name.textContent !== actor.name) name.textContent = actor.name;
     }
     if (zoom !== percentage/100) {
+      camera.zoom = clamp(camera.zoom * (percentage/100) / zoom, controls.minZoom, controls.maxZoom);
       zoom = percentage/100;
-      fit();
+      camera.updateProjectionMatrix();
     }
     changed = true;
     return {visible:visible.length, total:actors.length};
@@ -212,7 +230,18 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
     changed = true;
   }
 
+  let press, dragged = false;
+  renderer.domElement.addEventListener('pointerdown', event => {
+    dragged = Boolean(press);
+    press = {x:event.clientX, y:event.clientY};
+  });
+  renderer.domElement.addEventListener('pointermove', event => {
+    if (press && Math.hypot(event.clientX-press.x,event.clientY-press.y) > 5) dragged = true;
+  });
+  renderer.domElement.addEventListener('pointerup', () => { press = undefined; });
+  renderer.domElement.addEventListener('pointercancel', () => { press = undefined; dragged = true; });
   renderer.domElement.addEventListener('click', event => {
+    if (dragged) return;
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.set((event.clientX-rect.left)*2/rect.width-1,1-(event.clientY-rect.top)*2/rect.height);
     ray.setFromCamera(pointer,camera);
@@ -229,7 +258,7 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
     const delta = Math.min((time-lastTime)/1000,.14);
     lastTime = time;
     const reduced = noMotion();
-    visits = stroll(reduced ? none : idleAtDesk,time);
+    visits = stroll(reduced ? none : idleAtDesk,time,reservedLounge);
     for (const key of idleAtDesk) {
       const record = records.get(key);
       const destination = visits.get(key)?.position ?? record.home;
@@ -239,10 +268,6 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
       }
     }
     if (reduced && !changed) return;
-    if (Math.abs(yaw-targetYaw) > .001) {
-      yaw = reduced ? targetYaw : T.MathUtils.lerp(yaw,targetYaw,Math.min(1,delta*7));
-      fit();
-    }
     const markers = [];
     for (const [index,record] of [...records.values()].entries()) {
       const {figure, destination, actor, path, label} = record;
@@ -301,12 +326,17 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
     update,
     updateZones,
     rotate(direction) {
-      targetYaw = direction === 0 ? .66 : clamp(targetYaw+direction*.25,.07,1.19);
+      if (direction === 0) resetView();
+      else {
+        camera.position.sub(controls.target).applyAxisAngle(new T.Vector3(0,1,0),direction*.25).add(controls.target);
+        controls.update();
+      }
       changed = true;
     },
     dispose() {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      controls.dispose();
       for (const [key, record] of records) remove(key,record);
       disposeOffice?.();
       renderer.dispose();

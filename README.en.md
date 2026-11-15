@@ -100,7 +100,13 @@ The collector reads the process table on macOS and Linux and uses PowerShell CIM
 
 Each run uses its own directory under `data/workspaces/<run ID>`. The UI shows that directory and any new files. The Codex sandbox enforces read-only access or writes limited to the run directory. Responsibility and skill descriptions guide agent behavior. HR, finance, and meeting turns run in read-only mode.
 
-Pi handles text tasks and discussions using the profile's personality, responsibilities, and skills. Its runner disables file and shell tools, organization management tools, MCP, and automatic extension loading. If your Pi login depends on a provider extension, set `OFFICE_PI_PROVIDER_EXTENSION` to its absolute entry point path when starting Symbio and enter the corresponding model ID, such as `provider/model`, in the profile. Pi uses the current user's sign-in configuration and runs the extension under the workspace account. Assign tasks that require HR or finance management tools to a Codex agent in the corresponding role.
+Pi handles tasks and discussions using the profile's personality, responsibilities, and skills. Its runner disables built-in file and shell tools, organization management tools, and automatic extension loading. If your Pi login depends on a provider extension, set `OFFICE_PI_PROVIDER_EXTENSION` to its absolute entry point path when starting Symbio and enter the corresponding model ID, such as `provider/model`, in the profile. Pi uses the current user's sign-in configuration and runs the extension under the workspace account. Assign tasks that require HR or finance management tools to a Codex agent in the corresponding role.
+
+## Skills and MCP
+
+1. Under **设置 → 管理 → Skills 与 MCP** (Settings → Administration → Skills and MCP), upload a `SKILL.md` or paste its contents. Assign the skill in the staff profile. Symbio captures the skill text when a run is queued. Run Details shows that version in the prompt. Import covers Markdown text. Deploy any scripts or referenced files separately.
+2. Add an MCP server from the same page. Enter a Streamable HTTP endpoint (HTTPS or loopback HTTP) or a local stdio command (absolute executable path and a JSON array of arguments). Enter the exact names of the tools you want to allow. For HTTP Bearer authentication, set an `OFFICE_MCP_*` variable in the Symbio service environment and enter only its name in the UI. Use trusted stdio executables because they run under the workspace account.
+3. Assign the server in a Codex or Pi staff profile. Pi requires `builtin:mcp` support (verified with 1.5.1). MCP permissions apply to workspace-dispatched tasks. Symbio checks current assignments and enabled status at launch. Disabling a server affects future launches. To revoke access during an active run, stop the run from Run Details. The run timeline records when calls start, complete, or fail.
 
 ## Shared project files
 

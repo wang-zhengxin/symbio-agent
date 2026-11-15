@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { officeOverview } from '../public/overview.js';
-import { createOfficeStrolls, officePresence, placeOfficeActors } from '../public/office-presence.js';
+import { createOfficeStrolls, loungeSeats, officePresence, placeOfficeActors } from '../public/office-presence.js';
 
 test('Overview counts distinct accepted tasks in the display time zone and separates observations from active work', () => {
   const snapshot = {
@@ -83,8 +83,12 @@ test('Idle breaks wait for the longer interval, use separate spots and end or ca
   const step = minutes => stroll(idle,minutes*60_000);
   assert.equal(step(0).size,0);
   assert.equal(step(44.99).size,0);
-  const visits = step(45);
+  assert.equal(step(45).size,1);
+  assert.equal(step(45).size,1);
+  assert.equal(step(45.99).size,1);
+  const visits = step(46);
   assert.equal(visits.size,2);
+  assert.ok([...visits.values()].every(visit => visit.position.seated));
   assert.notEqual(visits.get('a').position,visits.get('b').position);
   assert.equal(step(52.49).size,2);
   idle.delete('a');
@@ -94,4 +98,44 @@ test('Idle breaks wait for the longer interval, use separate spots and end or ca
   assert.equal(step(53).size,0);
   assert.equal(step(97.5).has('b'),true);
   assert.equal(step(97.5).has('a'),false);
+});
+
+test('Break seats match the furniture and give priority to face-to-face conversations', () => {
+  const stroll = createOfficeStrolls(() => .5);
+  const idle = new Set(['a','b','c','d']);
+  const meeting = placeOfficeActors([
+    {key:'speaker',mode:'face_to_face',sessionId:'chat',order:0},
+    {key:'listener',mode:'face_to_face',sessionId:'chat',order:1},
+  ]);
+  const reserved = [...meeting.values()];
+  stroll(idle,0,reserved);
+  for (const minute of [45,46,47]) stroll(idle,minute*60_000,reserved);
+  const visits = stroll(idle,48*60_000,reserved);
+  const seated = [...visits.values()].filter(visit => visit.position.seated);
+  assert.equal(seated.length,2);
+  for (const {position} of seated) {
+    assert.ok(loungeSeats.some(seat => seat.x === position.x && seat.z === position.z && seat.angle === position.angle));
+    assert.ok(!reserved.some(seat => seat.x === position.x && seat.z === position.z));
+  }
+  const resting = [...visits].find(([,visit]) => visit.position.seated);
+  const next = stroll(idle,49*60_000,[...reserved,resting[1].position]);
+  assert.equal(next.has(resting[0]),false);
+});
+
+test('Independent random deadlines and durations stay staggered after a long pause', () => {
+  const values = [.1,.9,.6, 0,.2,0,.1,.5, .5, 0,.2,0,.9,.5];
+  const stroll = createOfficeStrolls(() => values.shift() ?? .5);
+  const idle = new Set(['a','b','c']);
+  stroll(idle,0);
+  assert.equal(stroll(idle,32*60_000).size,0);
+  const first = stroll(idle,33*60_000);
+  assert.ok(first.has('a'));
+  assert.equal(first.get('a').returnAt,38.5*60_000);
+  const resumed = stroll(idle,90*60_000);
+  assert.equal(resumed.size,1);
+  const visit = [...resumed.values()][0];
+  assert.equal(visit.returnAt,99.5*60_000);
+  assert.equal(stroll(idle,90*60_000).size,1);
+  assert.equal(stroll(idle,90.99*60_000).size,1);
+  assert.equal(stroll(idle,91*60_000).size,2);
 });

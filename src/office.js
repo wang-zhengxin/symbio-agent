@@ -7,6 +7,7 @@ import { runtimeInstructions } from './runtimes.js';
 import { createTaskDiscussion } from './task-discussion.js';
 import { avatarIds } from '../public/office-avatars.js';
 import { assignWorkstation } from './workstations.js';
+import { mcpFields } from './agent-capabilities.js';
 
 const terminal = ['completed', 'failed', 'cancelled', 'interrupted'];
 const maxTokens = 1_000_000_000_000;
@@ -34,6 +35,7 @@ export function createOffice(store, settings = createSettings(store), space) {
         id: before?.id ?? randomUUID(),
         name: field(input.name, label + '名称'),
         description: note(input.description, label + '说明'),
+        ...(kind === 'skill' ? {instructions:note(input.instructions ?? before?.instructions, 'SKILL.md 正文', 32_000)} : {}),
         ...(kind === 'project' ? projectFields(input, before) : {}),
         version: (before?.version ?? 0) + 1,
       });
@@ -42,13 +44,28 @@ export function createOffice(store, settings = createSettings(store), space) {
     });
   }
 
+  function saveMcpServer(input) {
+    return tx(() => {
+      const before = input.id ? requireRecord('mcpServer', input.id, 'MCP 服务') : null;
+      const record = put('mcpServer', {
+        id:before?.id ?? randomUUID(), name:field(input.name, 'MCP 服务名称'),
+        ...mcpFields(input, before), version:(before?.version ?? 0) + 1,
+      });
+      event('mcp.saved', {id:record.id, name:record.name, enabled:record.enabled});
+      return record;
+    });
+  }
+
   function agentProfile(input, runtimes, previous) {
     const teamId = input.teamId || null;
     if (teamId) requireRecord('team', teamId, '小组');
-    const skillIds = ids(input.skillIds ?? [], '技能');
+    const skillIds = ids(input.skillIds ?? previous?.skillIds ?? [], '技能');
     for (const id of skillIds) requireRecord('skill', id, '技能');
     const role = choice(input.role ?? 'worker', ['worker', 'lead', 'hr', 'finance'], '岗位');
     const runtime = choice(input.runtime ?? runtimes[0], runtimes, '运行器');
+    const mcpServerIds = modelRuntimes.includes(runtime)
+      ? ids(input.mcpServerIds ?? previous?.mcpServerIds ?? [], 'MCP 服务') : [];
+    for (const id of mcpServerIds) requireRecord('mcpServer', id, 'MCP 服务');
     const sandbox = choice(input.sandbox ?? 'read-only', ['read-only', 'workspace-write'], '文件权限');
     const model = runtime === 'observed' ? '' : note(input.model, '模型', 100);
     if (runtime === 'pi' && model.startsWith('-')) fail('Pi 模型名称不能以短横线开头');
@@ -56,7 +73,7 @@ export function createOffice(store, settings = createSettings(store), space) {
       name: field(input.name, '姓名'), role,
       personality: note(input.personality, '人格'),
       scope: note(input.scope, '职责范围'),
-      teamId, skillIds, runtime, avatarId: choice(input.avatarId ?? previous?.avatarId ?? 'auto', avatarIds, '人物形象'),
+      teamId, skillIds, mcpServerIds, runtime, avatarId: choice(input.avatarId ?? previous?.avatarId ?? 'auto', avatarIds, '人物形象'),
       model,
       sandbox: ['observed', 'pi'].includes(runtime) || ['hr', 'finance'].includes(role) ? 'read-only' : sandbox,
     };
@@ -324,7 +341,7 @@ export function createOffice(store, settings = createSettings(store), space) {
   function enqueue(agent, taskId, reservation, prompt, {conversationId = null, projectSpace, replyToId} = {}) {
     const run = {
       id: randomUUID(), taskId, agentId: agent.id,
-      agent: {...agent, skills: agent.skillIds.map(id => get('skill', id))},
+      agent: {...agent, skills: (agent.skillIds ?? []).map(id => get('skill', id))},
       kind: replyToId ? 'comment' : conversationId ? 'conversation' : 'task', conversationId, prompt,
       workspaceContext: settings.read('workspace').context,
       status: 'queued', activity: '等待调度', tools: {}, plan: [], usage: null,
@@ -627,7 +644,7 @@ export function createOffice(store, settings = createSettings(store), space) {
 
   function snapshot() {
     return {
-      cursor: store.cursor(), agents: list('agent'), teams: list('team'), skills: list('skill'),
+      cursor: store.cursor(), agents: list('agent'), teams: list('team'), skills: list('skill'), mcpServers:list('mcpServer'),
       projects: list('project'), tasks: list('task'), conversations: list('conversation'), ledger: ledger(),
       runs: list('run').reverse().map(run => ({
         id: run.id, taskId: run.taskId, agentId: run.agentId, kind: run.kind, status: run.status, conversationId:run.conversationId,
@@ -638,7 +655,7 @@ export function createOffice(store, settings = createSettings(store), space) {
     };
   }
 
-  return {saveNamed, saveAgent, saveTask, taskStatus, taskPriority, enqueueTask, startRun, report, stop, finish,
+  return {saveNamed, saveMcpServer, saveAgent, saveTask, taskStatus, taskPriority, enqueueTask, startRun, report, stop, finish,
     setBudget, ledger, startConversation, updateConversation, snapshot, seed, requireRecord,
     stageCandidate, approveCandidate, dismissCandidate, taskDetail, commentTask, taskDiscussion, dispatchScheduled, setAgentPaused};
 }

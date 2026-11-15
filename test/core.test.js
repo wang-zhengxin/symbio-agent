@@ -200,9 +200,14 @@ const item = {id:'tool-item', type:'dynamicToolCall', tool:'office_hire'};
 lines.on('line', line => {
   const {id, method, params, result} = JSON.parse(line);
   if (method === 'initialize') send({id, result:{}});
+  if (method === 'config/read') send({id, result:{config:{mcp_servers:{personal:{enabled:true}}}}});
   if (method === 'thread/start') {
     if (!params.dynamicTools.some(spec => spec.name === 'office_hire')) process.exit(2);
     if (!params.developerInstructions.includes('本地 Agent 公司员工 人事')) process.exit(4);
+    const servers = params.config.mcp_servers;
+    if (servers.personal?.enabled !== false || Object.values(servers).filter(server => server.enabled).length !== 1 ||
+      !Object.values(servers).some(server => server.enabled_tools?.join() === 'lookup')) process.exit(5);
+    if (!params.developerInstructions.includes('确认结果后再交付')) process.exit(6);
     send({id, result:{thread:{id:'thread'}}});
   }
   if (method === 'turn/start') {
@@ -225,7 +230,10 @@ lines.on('line', line => {
   const scheduler = createScheduler({store, office, data, concurrency: 1, executable});
   // Run cleanup before setup's database cleanup.
   try {
-    const run = office.enqueueTask(task(create('人事', 'hr')).id);
+    const server = office.saveMcpServer({name:'测试 MCP', transport:'http', url:'https://example.com/mcp', tools:'lookup'});
+    const skill = office.saveNamed('skill', {name:'验收', instructions:'确认结果后再交付'});
+    const agent = office.saveAgent({name:'人事', role:'hr', skillIds:[skill.id], mcpServerIds:[server.id]});
+    const run = office.enqueueTask(task(agent).id);
     const result = await new Promise((resolve, reject) => {
       const deadline = setTimeout(() => reject(new Error('protocol timeout')), 5000);
       store.stream.on('event', event => {

@@ -80,18 +80,24 @@ export function officePresence(snapshot, overview) {
 export const desks = [
   [-5.5, -1.65], [-2.65, -1.65], [.25, -1.65],
   [-5.5, 1.05], [-2.65, 1.05], [.25, 1.05],
-  [5.15, -.65], [7.85, -.65], [7.85, -2.5],
+  [5.15, .05], [7.85, .05], [7.85, -1.8],
   [-2.05, -5.7], [.85, -5.7],
 ];
 export const meetingTable = {x:6.45, z:5.55};
 export const chatTables = [{x:-4.35,z:5.65}, {x:-.6,z:5.65}];
 const loungeEntrance = {x:1.61,z:3.8};
+export const loungeSeats = chatTables.flatMap(({x,z}) => [-1,1].map(side => ({
+  x:x+side*.76, z, angle:-side*Math.PI/2, seated:true, area:'lounge',
+  exit:[{x:x+side*.76,z:6.5},{x:1.48,z:6.5},loungeEntrance],
+})));
 const loungeWalks = [
   {x:.98,z:6.66,angle:-.75,exit:[{x:1.48,z:5.35},loungeEntrance]},
   {x:-2.26,z:6.93,angle:2.1,exit:[{x:1.48,z:6.93},loungeEntrance]},
   {x:-4.3,z:7.12,angle:2.6,exit:[{x:1.48,z:7.12},loungeEntrance]},
   {x:-2.55,z:4.48,angle:.55,exit:[{x:1.48,z:4.48},loungeEntrance]},
 ].map(spot => ({...spot,seated:false,area:'stroll'}));
+const loungeBreaks = [...loungeSeats.map(seat => ({...seat,area:'stroll'})),...loungeWalks];
+const spotKey = position => position.x + ':' + position.z;
 
 const aisleZ = 2.3;
 const deskSeats = desks.map(([x, z]) => {
@@ -153,11 +159,12 @@ export function placeOfficeActors(actors, count = baseWorkstations) {
   }
   let pairIndex = 0;
   for (const group of pairs.values()) {
-    const table = chatTables[pairIndex++];
+    const tableIndex = pairIndex++;
+    const table = chatTables[tableIndex];
     if (!table) { group.forEach(home); continue; }
     group.sort((a, b) => a.order - b.order).forEach((actor, index) => {
-      const x = table.x + (index ? .76 : -.76);
-      positions.set(actor.key, {x, z:table.z, angle:toward(x,table.z,table), seated:true, area:'lounge'});
+      if (index < 2) positions.set(actor.key, loungeSeats[tableIndex*2+index]);
+      else home(actor);
     });
   }
   const priorities = {speaking:0, listening:1, working:2, thinking:3, blocked:4, stopping:5,
@@ -180,25 +187,33 @@ export function placeOfficeActors(actors, count = baseWorkstations) {
 export function createOfficeStrolls(random = Math.random) {
   const due = new Map();
   const visits = new Map();
+  let nextDeparture = 0;
   const minute = 60_000;
   const nextVisit = now => now + (30 + random()*30)*minute;
 
-  return function stroll(eligible, now) {
+  return function stroll(eligible, now, reserved = []) {
+    const unavailable = new Set(reserved.map(spotKey));
     for (const key of due.keys()) if (!eligible.has(key)) due.delete(key);
     for (const key of eligible) if (!due.has(key)) due.set(key, nextVisit(now));
     for (const [key, visit] of visits) {
-      if (!eligible.has(key) || now >= visit.returnAt) {
+      if (!eligible.has(key) || now >= visit.returnAt || unavailable.has(spotKey(visit.position))) {
         visits.delete(key);
         if (eligible.has(key)) due.set(key, nextVisit(now));
       }
     }
     const occupied = new Set([...visits.values()].map(visit => visit.position));
-    const available = loungeWalks.filter(position => !occupied.has(position));
-    for (const [key, deadline] of due) {
-      if (!available.length) break;
-      if (deadline > now || visits.has(key)) continue;
-      const [position] = available.splice(Math.floor(random()*available.length), 1);
+    const available = loungeBreaks.filter(position => !occupied.has(position) && !unavailable.has(spotKey(position)));
+    if (now < nextDeparture || !available.length) return visits;
+    const ready = [...due].filter(([key, deadline]) => deadline <= now && !visits.has(key));
+    if (ready.length) {
+      // A resumed tab can have many overdue timers. Dispatch one independently
+      // of roster order, then leave a random gap before the next departure.
+      const [key] = ready[Math.floor(random()*ready.length)];
+      const seats = available.filter(position => position.seated);
+      const choices = seats.length && random() < .75 ? seats : available;
+      const position = choices[Math.floor(random()*choices.length)];
       visits.set(key, {position, returnAt:now + (5 + random()*5)*minute});
+      nextDeparture = now + (.5 + random())*minute;
     }
     return visits;
   };
