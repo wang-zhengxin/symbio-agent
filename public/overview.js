@@ -289,7 +289,7 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
         ${selected.runId ? btn('run-view', '执行详情', selected.runId) : ''}
         ${selected.taskId ? btn('task-view', '任务', selected.taskId) : ''}
         ${selected.sessionId ? btn('overview-conversations', '会话') : ''}
-        ${btn(selected.kind === 'agent' ? 'agent-edit' : 'ws-human-edit', '档案', selected.profileId)}
+        ${selected.kind === 'system' ? '' : btn(selected.kind === 'agent' ? 'agent-edit' : 'ws-human-edit', '档案', selected.profileId)}
         <button type="button" data-action="office-person" data-id="" aria-label="关闭角色详情">×</button></div>` : ''}
       <footer class="office-map-toolbar">
         <div class="office-legend" aria-label="状态图例">
@@ -315,7 +315,7 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
     if (options.fullscreen) return `<div class="office-overview office-immersive">
       ${map(snapshot, model, options)}
       <div class="office-immersive-controls">
-        <span>拖拽旋转 · 滚轮缩放 · 右键拖拽平移</span>
+        <span>点击角色查看任务 · 拖拽旋转 · 滚轮缩放 · 右键拖拽平移</span>
         <button type="button" data-action="office-zoom-reset">重置视角</button>
         <button type="button" data-action="overview-fullscreen" data-id="map">退出大屏</button>
       </div>

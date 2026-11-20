@@ -209,6 +209,16 @@
   box-shadow: 0 4px 20px #30241915;
 }
 .office-immersive-controls span { color: var(--office-muted); }
+.overview-expanded :is(#inspection, #task-inspection, #overview-dialog) {
+  margin-inline: auto max(16px, env(safe-area-inset-right));
+  transform-origin: right center;
+}
+@media (max-width: 520px) {
+  .overview-expanded :is(#inspection, #task-inspection, #overview-dialog) {
+    margin-inline: auto;
+    transform-origin: center;
+  }
+}
 @media (max-width: 600px) {
   .office-immersive-controls span { display: none; }
 }

@@ -2,6 +2,7 @@ import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { companyTools } from './company-tools.js';
 import { codexRuntime, demoRuntime, piRuntime, redact } from './runtimes.js';
+import { prepareSkillFiles } from './skill-marketplace.js';
 
 const runtimes = new Map([['codex', codexRuntime], ['pi', piRuntime], ['demo', demoRuntime]]);
 
@@ -63,6 +64,7 @@ export function createScheduler({store, office, space, data, concurrency, execut
       await mkdir(cwd, {recursive: true, mode: 0o700});
       emit('run.workspace', {cwd});
       await space?.prepare(run, cwd, controller.signal);
+      await prepareSkillFiles(run,data,cwd);
       const runtime = runtimes.get(run.agent.runtime);
       if (!runtime) throw new Error('该员工没有平台执行权限');
       const currentBindings = store.get('agent', run.agentId)?.mcpServerIds ?? [];

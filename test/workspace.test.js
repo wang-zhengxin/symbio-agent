@@ -64,13 +64,50 @@ test('Existing staff and new hires keep unique desks as the shared layout expand
   backfillWorkstations(store);
   const legacy = workspace.snapshot().humans[0];
   assert.equal(legacy.seatIndex,0);
-  for (let i=1; i<12; i++) assert.equal(office.saveAgent({name:'Agent ' + i,runtime:'demo'}).seatIndex,i);
-  assert.equal(workspace.snapshot().workstationCount,12);
-  const hire = workspace.saveHuman({name:'新员工',title:'工程师'});
-  assert.equal(hire.seatIndex,12);
+  for (let i=1; i<12; i++) assert.equal(office.saveAgent({name:'Agent ' + i,runtime:'demo'}).seatIndex,i < 11 ? i : i+1);
   assert.equal(workspace.snapshot().workstationCount,13);
-  assert.equal(addWorkstations(store,{amount:2}).count,15);
-  assert.equal(office.saveAgent({name:'新 Agent',runtime:'demo'}).seatIndex,13);
-  assert.equal(workspace.snapshot().workstationCount,15);
+  const hire = workspace.saveHuman({name:'新员工',title:'工程师'});
+  assert.equal(hire.seatIndex,13);
+  assert.equal(workspace.snapshot().workstationCount,14);
+  assert.equal(addWorkstations(store,{amount:2}).count,16);
+  assert.equal(office.saveAgent({name:'新 Agent',runtime:'demo'}).seatIndex,14);
+  assert.equal(workspace.snapshot().workstationCount,16);
   assert.equal(workspace.saveHuman({...legacy,title:'产品设计师'}).seatIndex,0);
+});
+
+
+test('Administrator profiles bind once, reuse matching email, and keep the private office reserved', t => {
+  const store = openStore(':memory:');t.after(()=>store.close());
+  const workspace = createWorkspace(store);
+  const legacy = workspace.saveHuman({name:'旧名字',title:'管理员',email:'boss@example.test'});
+  const user = {id:'admin-one',name:'老板账号',role:'admin',email:'boss@example.test'};
+  const boss = workspace.ensureAdministrator(user);
+  assert.equal(boss.id,legacy.id);
+  assert.equal(boss.userId,user.id);
+  assert.equal(boss.officeRole,'boss');
+  const cursor = store.cursor();
+  workspace.ensureAdministrator(user);
+  assert.equal(store.cursor(),cursor);
+  assert.equal(workspace.snapshot().humans.length,1);
+  workspace.ensureAdministrator({...user,name:'新名字'});
+  assert.equal(workspace.snapshot().humans[0].name,'新名字');
+  workspace.ensureAdministrator({...user,id:'member',role:'member'});
+  assert.equal(workspace.snapshot().humans.length,1);
+  assert.equal(workspace.saveHuman({...boss,title:'老板'}).userId,user.id);
+  store.tx(()=>store.put('agent',{id:'old-seat',name:'旧工位',seatIndex:11}));
+  backfillWorkstations(store);
+  assert.notEqual(store.get('agent','old-seat').seatIndex,11);
+});
+
+test('Clearing initialized staff does not recreate demo employees on restart', t => {
+  const store=openStore(':memory:');t.after(()=>store.close());
+  const office=createOffice(store);
+  office.seed();
+  assert.equal(store.list('agent').length,5);
+  const teams=store.list('team').length, skills=store.list('skill').length;
+  store.tx(()=>{for(const person of store.list('agent'))store.remove('agent',person.id);});
+  createOffice(store).seed();
+  assert.equal(store.list('agent').length,0);
+  assert.equal(store.list('team').length,teams);
+  assert.equal(store.list('skill').length,skills);
 });

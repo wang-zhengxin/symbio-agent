@@ -139,9 +139,10 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
     record.destination = destination;
     const {button} = record.label;
     const {actor} = record;
-    const location = destination.area === 'stroll' ? (destination.seated ? '休息区 · 坐下休息' : '休息区 · 散步') :
+    const location = destination.area === 'private' ? '独立办公室' : destination.area === 'reception' ? '前台座位' :
+      destination.area === 'stroll' ? (destination.seated ? '休息区 · 坐下休息' : '休息区 · 散步') :
       destination.area === 'desk' ? workstationLabel(actor.seatIndex) : '';
-    const title = [actor.name,actor.label,location].filter(Boolean).join(' · ');
+    const title = [actor.name,actor.label,actor.title,location].filter(Boolean).join(' · ');
     button.dataset.area = destination.area;
     button.dataset.moving = String(record.path.length > 0);
     button.setAttribute('aria-label',title);
@@ -296,7 +297,7 @@ export function createOfficeScene(host, stroll = createOfficeStrolls()) {
       const x = (head.x+1)*width/2, y = (1-head.y)*height/2;
       label.button.style.translate = x + 'px ' + y + 'px';
       label.button.style.zIndex = actor.key === selected ? 100 : Math.round((head.y*-1+1)*35);
-      const important = zoneMarkers.size === 0 && ['speaking','working','blocked','thinking'].includes(actor.state);
+      const important = Boolean(actor.fixedSeat) || (zoneMarkers.size === 0 && ['speaking','working','blocked','thinking'].includes(actor.state));
       const priority = actor.key === selected ? 2 : important ? 1 : 0;
       markers.push({button:label.button,x,y,priority,name:actor.name});
     }

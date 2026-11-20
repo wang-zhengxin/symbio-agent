@@ -61,8 +61,25 @@ export function createWorkspace(store) {
     return tx(() => {
       const avatarId = choice(input.avatarId ?? before?.avatarId ?? 'auto', avatarIds, '人物形象');
       const person = put('human', {id: before?.id ?? randomUUID(), name, title, email, teamId, availability, avatarId,
+        ...(before?.userId ? {userId:before.userId,officeRole:before.officeRole} : {}),
         number: before?.number ?? list('human').length + 1, seatIndex:assignWorkstation(store, before)});
       event('human.saved', {id: person.id, name});
+      return person;
+    });
+  }
+
+  function ensureAdministrator(user) {
+    if (user?.role !== 'admin') return;
+    const before = list('human').find(person => person.userId === user.id)
+      ?? list('human').find(person => !person.userId && person.email && person.email.toLowerCase() === user.email?.toLowerCase());
+    if (before?.userId === user.id && before.officeRole === 'boss' && before.name === user.name &&
+      before.email === user.email && before.availability === 'online') return before;
+    return tx(() => {
+      const person = put('human', {...before, id:before?.id ?? randomUUID(),userId:user.id,officeRole:'boss',
+        name:user.name,email:user.email,title:'老板',availability:'online',teamId:before?.teamId ?? null,
+        avatarId:before?.avatarId ?? 'lead',number:before?.number ?? list('human').length+1,
+        seatIndex:assignWorkstation(store,before)});
+      event('human.saved',{id:person.id,name:person.name});
       return person;
     });
   }
@@ -113,6 +130,6 @@ export function createWorkspace(store) {
     });
   }
 
-  return {saveHuman, saveSchedule, saveLayout,
+  return {saveHuman, saveSchedule, saveLayout, ensureAdministrator,
     snapshot: () => ({humans: list('human'), schedules: list('schedule'), layout: layout(), workstationCount:workstationCount(store)})};
 }

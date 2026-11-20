@@ -104,9 +104,15 @@ Pi handles tasks and discussions using the profile's personality, responsibiliti
 
 ## Skills and MCP
 
-1. Under **设置 → 管理 → Skills 与 MCP** (Settings → Administration → Skills and MCP), upload a `SKILL.md` or paste its contents. Assign the skill in the staff profile. Symbio captures the skill text when a run is queued. Run Details shows that version in the prompt. Import covers Markdown text. Deploy any scripts or referenced files separately.
+1. Under **设置 → 管理 → Skills 与 MCP** (Settings → Administration → Skills and MCP), select **下载技能** (Download skills), choose a source, browse or search, then download directly into the skill library. Sources include [Anthropic Skills](https://github.com/anthropics/skills), [OpenAI Plugins](https://github.com/openai/plugins), [Vercel Agent Skills](https://github.com/vercel-labs/agent-skills), [skills.sh](https://skills.sh), and [SkillsMP](https://skillsmp.com). The last two require a search keyword. You can also upload a `SKILL.md` or paste its contents. Assign the downloaded skill in a staff profile. Symbio captures the skill text when a run is queued. Run Details shows that version in the prompt.
 2. Add an MCP server from the same page. Enter a Streamable HTTP endpoint (HTTPS or loopback HTTP) or a local stdio command (absolute executable path and a JSON array of arguments). Enter the exact names of the tools you want to allow. For HTTP Bearer authentication, set an `OFFICE_MCP_*` variable in the Symbio service environment and enter only its name in the UI. Use trusted stdio executables because they run under the workspace account.
 3. Assign the server in a Codex or Pi staff profile. Pi requires `builtin:mcp` support (verified with 1.5.1). MCP permissions apply to workspace-dispatched tasks. Symbio checks current assignments and enabled status at launch. Disabling a server affects future launches. To revoke access during an active run, stop the run from Run Details. The run timeline records when calls start, complete, or fail.
+
+Marketplace downloads pin a Git commit and save the entire skill directory, including scripts and reference files. Downloading the same repository and path again reuses the existing skill and preserves local edits. Skill cards link to the source version. Files live in `OFFICE_DATA_DIR/skill-packages/`; include this directory alongside the SQLite database in backups and migrations. Each skill is limited to 256 files and 16 MB, each file to 4 MB, and the skill text to 32,000 characters. Failed downloads are cleaned up.
+
+Assigned skills are copied into `.office-skills/<skill-id>/` in the run directory. Codex can read their supporting files. Pi receives the skill text; its built-in file and shell tools remain disabled, so scripts require corresponding runner tools. Downloading does not execute scripts. Manual import only saves Markdown text.
+
+These public sources require no API key. The server needs network access to the GitHub API, raw.githubusercontent.com, and the selected catalog. Rate limits and network failures appear in the UI with a retry option. Private repositories are not supported. skills.sh returns up to 50 results per search; use more specific keywords to narrow the results.
 
 ## Shared project files
 

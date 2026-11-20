@@ -26,7 +26,7 @@ export function createOffice(store, settings = createSettings(store), space) {
     return record;
   }
 
-  function saveNamed(kind, input) {
+  function saveNamed(kind, input, source) {
     const labels = {team: '小组', skill: '技能', project: '项目'};
     const label = labels[kind];
     const before = input.id ? requireRecord(kind, input.id, label) : null;
@@ -35,7 +35,8 @@ export function createOffice(store, settings = createSettings(store), space) {
         id: before?.id ?? randomUUID(),
         name: field(input.name, label + '名称'),
         description: note(input.description, label + '说明'),
-        ...(kind === 'skill' ? {instructions:note(input.instructions ?? before?.instructions, 'SKILL.md 正文', 32_000)} : {}),
+        ...(kind === 'skill' ? {instructions:note(input.instructions ?? before?.instructions, 'SKILL.md 正文', 32_000),
+          ...((source ?? before?.source) ? {source:source ?? before.source} : {})} : {}),
         ...(kind === 'project' ? projectFields(input, before) : {}),
         version: (before?.version ?? 0) + 1,
       });
@@ -626,7 +627,11 @@ export function createOffice(store, settings = createSettings(store), space) {
   }
 
   function seed() {
-    if (list('agent').length) return;
+    if (get('setting', 'agents-initialized')) return;
+    if (list('agent').length) {
+      tx(() => put('setting', {id:'agents-initialized', initializedAt:time()}));
+      return;
+    }
     const team = saveNamed('team', {name: '产品研发'});
     const skill = saveNamed('skill', {name: '交付记录', description: '交付时说明结果、验证方法及未解决问题。'});
     const profiles = [
@@ -640,6 +645,7 @@ export function createOffice(store, settings = createSettings(store), space) {
       saveAgent({name, role, personality, scope, teamId: team.id, skillIds: [skill.id],
         sandbox: name === '工程师' ? 'workspace-write' : 'read-only'});
     }
+    tx(() => put('setting', {id:'agents-initialized', initializedAt:time()}));
   }
 
   function snapshot() {

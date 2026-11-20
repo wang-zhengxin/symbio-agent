@@ -107,9 +107,15 @@ Pi 执行任务和讨论，接收公司档案中的人格、职责和技能。Pi
 
 ## Skills 与 MCP
 
-1. 在「设置 → 管理 → Skills 与 MCP」上传 `SKILL.md` 或粘贴正文。配置员工时勾选对应技能。任务入队时保存当时的技能正文，执行详情中的提示词可查看该版本。当前导入范围为 Markdown 正文，技能目录内的脚本和引用文件需另行部署。
+1. 在「设置 → 管理 → Skills 与 MCP」点击「下载技能」，选择来源后浏览或搜索，点击「下载」直接加入技能库。支持 [Anthropic Skills](https://github.com/anthropics/skills)、[OpenAI Plugins](https://github.com/openai/plugins)、[Vercel Agent Skills](https://github.com/vercel-labs/agent-skills)、[skills.sh](https://skills.sh) 和 [SkillsMP](https://skillsmp.com)。后两个目录需要输入关键词。也可以上传 `SKILL.md` 或粘贴正文进行手动导入。下载后在员工档案中勾选技能。任务入队时保存当时的技能正文，执行详情中的提示词可查看该版本。
 2. 在同一页面添加 MCP 服务。填写 Streamable HTTP 地址（HTTPS 或回环地址上的 HTTP）或本机 stdio 命令（绝对路径和 JSON 参数数组），逐项填写允许的工具名。HTTP Bearer 鉴权支持 `OFFICE_MCP_*` 环境变量，将变量值设在工作台服务环境中，页面只登记变量名。stdio 服务以工作台账号启动，应选用信任的程序。
 3. 在 Codex 或 Pi 员工档案中选择允许使用的服务。Pi 需支持 `builtin:mcp`（已用 1.5.1 验证）。MCP 授权用于平台派发的任务，生效时检查员工当前绑定和服务启用状态。停用后影响后续启动的任务，正在执行的任务如需立即停止可在执行详情中中止。工具开始、完成和失败出现在执行时间线。
+
+目录下载会固定 Git 提交版本，保存技能正文及该目录中的脚本、引用等配套文件；重复下载同一仓库、同一路径会复用现有技能，不覆盖本地修改。技能卡片可查看来源及版本。文件保存在 `OFFICE_DATA_DIR/skill-packages/`，备份和迁移时须与 SQLite 数据库一并保留。单个技能目录限 256 个文件、16 MB，单文件限 4 MB，正文限 32,000 字符；失败时清理未完成的下载。
+
+执行时将分配的技能复制到任务目录的 `.office-skills/<skill-id>/`。Codex 可按技能说明读取配套文件；Pi 当前接收技能正文，内置文件及 Shell 工具仍被禁用，配套脚本需要运行器具备相应工具。下载本身不执行脚本。手动导入只保存 Markdown 正文。
+
+公开来源无需填写 API Key，服务端需要能够访问 GitHub API、raw.githubusercontent.com 和对应目录站点。来源限流或网络失败会在页面显示错误并提供重试；不支持私有仓库。skills.sh 当前每次最多返回 50 条结果，可以用更具体的关键词缩小范围。
 
 ## 项目公共工作区
 

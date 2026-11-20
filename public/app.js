@@ -42,7 +42,7 @@ let data, page = 'overview', feed, selectedRun, refreshTimer, refreshPending, sa
 let refreshAgain = false;
 let settingsPage = 'workspace', inboxData, auditData;
 let signedInUser, usersData, accountMode, reloadingAccount = false;
-let overviewData, overviewDetails, officeZoom = 100, fullscreenMode;
+let overviewData, overviewDetails, officeZoom = 100, fullscreenMode, fullscreenReturnHash;
 let officeScene, officeModule, figurePreview, officeFlat = false, office3dUnavailable = false;
 let sceneActors = [], selectedActor;
 const officeStrolls = createOfficeStrolls();
@@ -70,6 +70,7 @@ const memberActions = new Set([
   'ws-mobile-menu', 'ws-profile', 'ws-period', 'ws-all-tasks', 'ws-projects', 'ws-day', 'ws-month',
   'project-tasks', 'project-space', 'space-tab', 'space-preview', 'space-delivery', 'space-compare',
   'task-view', 'task-discussion-view', 'task-filters-clear', 'task-view-switch', 'task-jump-comment',
+  'task-view-set', 'task-group-toggle', 'task-selection-clear', 'task-export', 'task-table-group', 'task-table-columns', 'task-table-column',
   'task-reply', 'task-remove-mention', 'task-compose', 'board-scope', 'board-filter', 'board-display',
   'board-show-meta', 'board-hide-empty', 'board-task-menu', 'board-copy-link', 'board-column-menu', 'board-column-filter',
 ]);
@@ -212,23 +213,27 @@ function showPanel(title, body) {
   if (el('office-layout-dialog-viewport')) renderOfficeScene();
 }
 
-function endOverviewFullscreen() {
+function endOverviewFullscreen(restore = false) {
+  const returnHash = fullscreenReturnHash;
+  fullscreenReturnHash = undefined;
   fullscreenMode = undefined;
   document.body.classList.remove('overview-expanded', 'office-map-focus');
-  if (document.fullscreenElement === el('main')) document.exitFullscreen().catch(() => {});
+  if ([document.documentElement, el('main')].includes(document.fullscreenElement)) document.exitFullscreen().catch(() => {});
+  if (restore && returnHash) location.hash = returnHash;
 }
 
 function toggleOverviewFullscreen(mode) {
   if (fullscreenMode) {
-    endOverviewFullscreen();
+    endOverviewFullscreen(true);
   } else {
     fullscreenMode = mode;
     officeFlat = false;
     office3dUnavailable = false;
     document.body.classList.add('overview-expanded');
     document.body.classList.add('office-map-focus');
-    if (!document.fullscreenElement && el('main').requestFullscreen) {
-      el('main').requestFullscreen().catch(() => {});
+    // Keep body-level dialogs inside the fullscreen tree, outside the refreshed scene.
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
     }
   }
   render();
@@ -283,6 +288,10 @@ function taskActions(task, run) {
 }
 
 const boardIcons = {
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/>',
+  group: '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/>',
+  export: '<path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"/>',
+  fullscreen: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
   list: '<path d="M8 6h12M8 12h12M8 18h12M3 6h1M3 12h1M3 18h1"/>',
   board: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m6-16v16"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -388,24 +397,88 @@ function taskFilterBar() {
   </form>`;
 }
 
+const taskViewNames = {board:'看板',list:'列表',table:'表格'};
+const taskColumns = {status:'状态',priority:'优先级',assignee:'负责人',due:'截止日期',labels:'标签'};
+const hiddenTaskColumns = new Set(), collapsedTaskGroups = new Set(), selectedTaskRows = new Set();
+let tableGrouping = false;
+function rowCheckbox(id, label) {
+  const items = filteredTasks().filter(task => id === 'all' || task.status === id);
+  const selected = items.filter(task => selectedTaskRows.has(task.id)).length;
+  return `<input type="checkbox" data-task-select-group="${escape(id)}" aria-label="${escape(label)}"
+    ${items.length && selected === items.length ? 'checked' : ''} ${!items.length ? 'disabled' : ''}
+    ${selected && selected < items.length ? 'data-indeterminate="true"' : ''}>`;
+}
+function taskRowCheck(task) {
+  return `<input type="checkbox" data-task-select="${escape(task.id)}" aria-label="选择 ${escape(taskKey(task))}" ${selectedTaskRows.has(task.id) ? 'checked' : ''}>`;
+}
+function taskTitleButton(task) {
+  return `<button type="button" class="task-row-title" data-action="task-view" data-id="${escape(task.id)}">
+    <span class="task-key">${escape(taskKey(task))}</span><strong>${escape(task.title)}</strong></button>`;
+}
+function taskGroupHeader(status, count) {
+  return `${rowCheckbox(status,'选择'+workflowName(status)+'任务')}
+    <button type="button" class="task-group-toggle" data-action="task-group-toggle" data-id="${status}"
+      aria-expanded="${!collapsedTaskGroups.has(status)}"><span class="task-group-chevron">${collapsedTaskGroups.has(status) ? '›' : '⌄'}</span>
+      ${statusIcon(status)}<strong>${escape(workflowName(status))}</strong><span>${count}</span></button>`;
+}
 function tasksList(items) {
-  if (!items.length) return empty('没有匹配的任务。');
-  return `<div class="table"><table><thead><tr><th>编号</th><th>任务</th><th>状态</th><th>负责人</th>
-    <th>优先级</th><th>截止日期</th><th>标签</th><th>操作</th></tr></thead>
-    <tbody>${items.map(task => `<tr>
-    <td class="task-key">${escape(taskKey(task))}</td><td>${escape(task.title)}
-      ${task.scheduledAt ? `<small class="task-board-activity">${escape(taskScheduleLabel(task))}</small>` : ''}</td>
-    <td><span class="task-board-value">${statusIcon(task.status)}${escape(workflowName(task.status))}</span></td><td>${escape(assignedName(task))}</td>
-    <td><span class="task-board-value">${priorityIcon(task.priority)}${escape(taskPriority(task) || '无优先级')}</span></td><td>${escape(task.dueDate || '—')}</td>
-    <td>${labelBadges(task)}</td><td>${taskActions(task, find('runs', task.lastRunId))}</td>
-    </tr>`).join('')}</tbody></table></div>`;
+  return `<div class="task-grouped-list">${data.taskStates.map(status => {
+    const rows = items.filter(task=>task.status===status);
+    if (boardHideEmpty && !rows.length) return '';
+    return `<section class="task-list-group"><header>${taskGroupHeader(status,rows.length)}</header>
+      ${collapsedTaskGroups.has(status) ? '' : rows.map(task=>`<div class="task-list-row">
+        ${taskRowCheck(task)}${taskTitleButton(task)}
+        ${boardShowMeta ? `<span class="task-list-priority" title="${escape(taskPriority(task))}">${priorityIcon(task.priority)}</span>
+          <span class="task-list-owner" title="${escape(assignedName(task))}">${boardIcon('user')}${escape(assignedName(task))}</span>` : ''}
+        ${boardButton('board-task-menu','任务操作',task.id,'more',{compact:true,popup:true})}</div>`).join('') || '<p class="task-list-empty">无任务</p>'}</section>`;
+  }).join('') || empty('没有匹配的任务。')}</div>`;
+}
+function tasksTable(items) {
+  const columns = Object.keys(taskColumns).filter(key=>!hiddenTaskColumns.has(key));
+  const cell = (task,key) => ({
+    status:`<span class="task-board-value">${statusIcon(task.status)}${escape(workflowName(task.status))}</span>`,
+    priority:`<span class="task-board-value">${priorityIcon(task.priority)}${escape(taskPriority(task)||'无优先级')}</span>`,
+    assignee:`<span class="task-board-value">${boardIcon('user')}${escape(assignedName(task))}</span>`,
+    due:escape(task.dueDate || '—'), labels:labelBadges(task) || '<span class="task-key">空</span>',
+  })[key];
+  const row = task => `<tr>${'<td class="task-check-cell">'+taskRowCheck(task)+'</td>'}<td>${taskTitleButton(task)}</td>
+    ${columns.map(key=>`<td>${cell(task,key)}</td>`).join('')}
+    <td>${boardButton('board-task-menu','任务操作',task.id,'more',{compact:true,popup:true})}</td></tr>`;
+  const rows = tableGrouping ? data.taskStates.map(status=>{
+    const group=items.filter(task=>task.status===status);
+    if(boardHideEmpty&&!group.length)return '';
+    return `<tr class="task-table-group"><td colspan="${columns.length+3}"><div>${taskGroupHeader(status,group.length)}</div></td></tr>`+
+      (collapsedTaskGroups.has(status)?'':group.map(row).join('') || `<tr><td colspan="${columns.length+3}" class="task-list-empty">无任务</td></tr>`);
+  }).join('') : items.map(row).join('');
+  return `<div class="task-data-table"><table><thead><tr><th class="task-check-cell">${rowCheckbox('all','选择全部任务')}</th><th>任务</th>
+    ${columns.map(key=>`<th>${taskColumns[key]}</th>`).join('')}<th aria-label="操作"></th></tr></thead><tbody>
+    ${rows || `<tr><td colspan="${columns.length+3}" class="task-list-empty">没有匹配的任务。</td></tr>`}</tbody></table></div>`;
+}
+function taskDataToolbar(items) {
+  const selected = items.filter(task=>selectedTaskRows.has(task.id)).length;
+  return `<div class="task-data-toolbar"><input type="search" id="task-quick-search" aria-label="搜索标题或任务编号"
+    placeholder="搜索标题或任务编号…" value="${escape(taskFilters.q || '')}">
+    <div class="task-board-controls">${selected ? `<span>已选 ${selected} 项</span>${boardButton('task-selection-clear','取消选择')}` : ''}
+    ${boardButton('task-export',selected ? '导出所选 CSV' : '导出 CSV','','export')}</div></div>`;
+}
+function exportTaskRows() {
+  let items=filteredTasks();
+  const selected=items.filter(task=>selectedTaskRows.has(task.id));
+  if(selected.length)items=selected;
+  const csvCell = value => '"'+String(value??'').replace(/^[\s]*[=+@-]/,m=>"'"+m).replaceAll('"','""')+'"';
+  const rows=[['编号','任务','状态','优先级','负责人','截止日期','标签'],...items.map(task=>[
+    taskKey(task),task.title,workflowName(task.status),taskPriority(task)||'无优先级',assignedName(task),task.dueDate,
+    (task.labelIds??[]).map(id=>(data.settings?.labels??[]).find(label=>label.id===id)?.name??id).join('、')])];
+  const url=URL.createObjectURL(new Blob(['\uFEFF'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download='任务列表.csv';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
 let taskView;
 function tasks() {
   const running = new Set(data.runs.filter(run => ['running', 'stopping'].includes(run.status)).map(run => run.agentId)).size;
   const items = filteredTasks();
-  const view = taskView ?? preferences.taskView;
+  const view = taskViewNames[taskView ?? preferences.taskView] ? taskView ?? preferences.taskView : 'board';
   const filterCount = Object.values(taskFilters).filter(Boolean).length;
   return `<header class="task-board-header">
     <div>${boardButton('ws-nav', '返回项目工作台', 'tasks', 'arrow', {compact:true})}<h1>我的任务</h1></div>
@@ -418,10 +491,12 @@ function tasks() {
       <span class="task-board-running"><i></i>${running} 个智能体工作中</span>
       ${boardButton('board-filter', '筛选' + (filterCount ? ' · ' + filterCount : ''), '', 'filter', {active:boardFilterOpen})}
       ${boardButton('board-display', '显示', '', 'display', {popup:true})}
-      ${boardButton('task-view-switch', view === 'list' ? '列表' : '看板', '', view === 'list' ? 'list' : 'board')}
+      ${view === 'table' ? boardButton('task-table-group',tableGrouping ? '按状态分组' : '分组','','group',{active:tableGrouping}) + boardButton('task-table-columns','列','','table',{popup:true}) : ''}
+      ${boardButton('task-view-switch', taskViewNames[view], '', view, {popup:true})}
+      ${boardButton('task-fullscreen', '大屏模式', '', 'fullscreen')}
     </div>
   </div>${boardFilterOpen ? taskFilterBar() : ''}
-  ${view === 'list' ? `<div class="task-board-list">${tasksList(items)}</div>` :
+  ${view !== 'board' ? taskDataToolbar(items) + (view === 'list' ? tasksList(items) : tasksTable(items)) :
     `<div class="board task-lanes" tabindex="0" aria-label="按状态分组的任务">${data.taskStates.map(status => {
       const column = items.filter(task => task.status === status);
       if (boardHideEmpty && !column.length) return '';
@@ -868,7 +943,8 @@ function runTable(runs) {
 
 function namedCard(kind, record) {
   return `<article class="card"><div class="card-head"><h3>${escape(record.name)}</h3>${btn(kind + '-edit', '编辑', record.id)}</div>
-    ${record.description ? `<p>${escape(record.description)}</p>` : ''}</article>`;
+    ${record.description ? `<p>${escape(record.description)}</p>` : ''}
+    ${kind === 'skill' && record.source ? `<p>${escape(record.source.repository)} · ${record.source.files} 个文件 · ${escape(record.source.ref.slice(0,7))}</p><a class="space-link" href="${escape(record.source.url)}" target="_blank" rel="noopener noreferrer">查看来源版本</a>` : ''}</article>`;
 }
 
 function candidatePresence(candidate) {
@@ -998,7 +1074,7 @@ function settingsBody() {
     case 'preferences':
       return settingsPanel('此浏览器的偏好', rows([
         ['外观', {system: '跟随系统', light: '浅色', dark: '深色'}[preferences.theme]],
-        ['任务默认视图', {board: '看板', list: '列表'}[preferences.taskView]],
+        ['任务默认视图', taskViewNames[preferences.taskView]],
         ['显示时区', preferences.timeZone === 'local' ? '跟随浏览器' : preferences.timeZone],
       ]), editSetting('preferences'));
     case 'notifications':
@@ -1039,7 +1115,8 @@ function settingsBody() {
     case 'capabilities':
       return settingsPanel('Skills', data.skills.length
         ? `<div class="grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>`
-        : empty('暂无技能。可上传 SKILL.md 或直接填写。'), btn('skill-edit', '创建技能', '', true)) +
+        : empty('暂无技能。可从技能目录下载，或上传 SKILL.md。'),
+        actions(btn('skill-market', '下载技能', '', true),btn('skill-edit', '创建技能'))) +
         settingsPanel('MCP 服务', data.mcpServers.length
           ? `<div class="grid">${data.mcpServers.map(server => `<article class="card">
             <div class="card-head"><h3>${escape(server.name)}</h3>${btn('mcp-edit', '编辑', server.id)}</div>
@@ -1196,6 +1273,7 @@ function render() {
   if (page === 'layout' && workspaceView.dragging()) return;
   const focus = document.activeElement;
   const key = el('main').contains(focus) ? focus.dataset : {};
+  const quickSearchFocus = focus?.id === 'task-quick-search';
   const filterFocus = focus?.form?.id === 'task-filters' ? focus.name : '';
   const selection = focus?.type === 'search' ? [focus.selectionStart, focus.selectionEnd] : null;
   const boardLeft = el('main').querySelector('.board')?.scrollLeft;
@@ -1204,6 +1282,7 @@ function render() {
   const officeRoster = el('main').querySelector('.office-live-roster')?.scrollLeft;
   const workstationScroll = el('main').querySelector('.symbio-workstation-roster')?.scrollTop;
   el('main').innerHTML = renderers[page]();
+  for (const checkbox of el('main').querySelectorAll('[data-indeterminate]')) checkbox.indeterminate = true;
   renderOfficeScene();
   if (workstationScroll && el('main').querySelector('.symbio-workstation-roster')) {
     el('main').querySelector('.symbio-workstation-roster').scrollTop = workstationScroll;
@@ -1224,7 +1303,10 @@ function render() {
     const board = el('main').querySelector('.board');
     if (board) board.scrollLeft = boardLeft;
   }
-  if (filterFocus) {
+  if (quickSearchFocus) {
+    el('task-quick-search')?.focus({preventScroll:true});
+    if(selection)el('task-quick-search')?.setSelectionRange(...selection);
+  } else if (filterFocus) {
     const filter = el('task-filters')?.elements[filterFocus];
     filter?.focus({preventScroll: true});
     if (selection) filter?.setSelectionRange(...selection);
@@ -1263,7 +1345,8 @@ function runPanel({run, trace}) {
   const output = escape(run.output);
   return `<div class="card-head"><div><h3>${escape(run.agent.name)} · ${escape(find('tasks', run.taskId)?.title ?? '会话发言')}</h3>
     <p class="description">${runtimeLabels[run.agent.runtime]} · 配置版本 ${run.agent.version}${run.usage ? ' · ' + number(run.usage.totalTokens) + ' Token' : ''}</p></div>
-    ${actions(badge(run.status), active.includes(run.status) && run.status !== 'stopping' ? btn('run-stop', '停止', run.id) : '')}</div>
+    ${actions(badge(run.status), run.taskId ? btn('task-view', '任务详情', run.taskId) : '',
+      active.includes(run.status) && run.status !== 'stopping' ? btn('run-stop', '停止', run.id) : '')}</div>
     ${run.activity ? `<p>${escape(run.activity)}</p>` : ''}
     ${run.error ? `<p class="error">${escape(run.error)}</p>` : ''}
     ${trace ? runTiming(run, trace) : ''}
@@ -1340,7 +1423,7 @@ async function refresh() {
     render();
     if (!officeScene && !isMember()) {
       const actors = officePresence(snapshot,officeOverview(snapshot,null,timeOptions()));
-      const idle = new Set(actors.filter(actor => actor.state === 'idle' && Number.isInteger(actor.seatIndex)).map(actor => actor.key));
+      const idle = new Set(actors.filter(actor => !actor.fixedSeat && actor.state === 'idle' && Number.isInteger(actor.seatIndex)).map(actor => actor.key));
       const reserved = [...placeOfficeActors(actors,snapshot.workstationCount).values()]
         .filter(position => position.area === 'lounge');
       officeStrolls(idle,performance.now(),reserved);
@@ -1446,6 +1529,77 @@ function editNamed(kind, id) {
       if (picker.isConnected) error.textContent = failure.message;
     }
   });
+}
+
+let skillMarketSources = [], skillMarketItems = [], skillMarketRequest = 0;
+
+async function openSkillMarket() {
+  skillMarketSources = await api('skills/sources');
+  showPanel('下载 Skills',
+    '<div class="stack">' +
+    select('技能来源','skillSource',skillMarketSources.map(source => [source.id,source.name]),skillMarketSources[0].id) +
+    input('搜索技能','skillQuery','') +
+    actions(btn('skill-search','搜索 / 浏览','1',true)) +
+    '<p class="description">下载完整技能目录到工作台，随后可在员工档案中分配。Pi 当前使用技能正文，配套脚本需要运行器提供相应工具。</p>' +
+    '<div id="skill-market-results" class="stack" aria-live="polite"></div></div>');
+  const query = el('overview-dialog-body').querySelector('[name=skillQuery]');
+  query.addEventListener('keydown',event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    searchSkillMarket(1);
+  });
+  el('overview-dialog-body').querySelector('[name=skillSource]').addEventListener('change',() => searchSkillMarket(1));
+  await searchSkillMarket(1);
+}
+
+async function searchSkillMarket(page) {
+  const results = el('skill-market-results');
+  if (!results) return;
+  const request = ++skillMarketRequest;
+  const body = el('overview-dialog-body');
+  const source = body.querySelector('[name=skillSource]').value;
+  const query = body.querySelector('[name=skillQuery]').value.trim();
+  const provider = skillMarketSources.find(item => item.id === source);
+  skillMarketItems = [];
+  results.innerHTML = empty(provider.searchRequired && !query ? '输入关键词后搜索此目录。' : '正在读取技能目录…');
+  if (provider.searchRequired && !query) return;
+  try {
+    const result = await api('skills/search?' + new URLSearchParams({source,query,page}));
+    if (request !== skillMarketRequest || !results.isConnected) return;
+    skillMarketItems = result.items;
+    results.innerHTML = '<p><a class="space-link" target="_blank" rel="noopener noreferrer" href="' + escape(provider.url) + '">打开 ' + escape(provider.name) + '</a></p>' +
+      (result.items.length ? result.items.map((item,index) => `<article class="card">
+        <div class="card-head"><h3>${escape(item.name)}</h3>
+        ${item.installedId ? '<span>已下载</span>' : btn('skill-download','下载',String(index),true)}</div>
+        <p>${escape(item.repository)}</p>
+        ${item.description ? '<p>'+escape(item.description)+'</p>' : ''}
+        <a class="space-link" href="${escape(item.url)}" target="_blank" rel="noopener noreferrer">查看来源</a>
+        <p data-download-status role="status"></p></article>`).join('') : empty('没有找到匹配的技能。')) +
+      actions(result.page > 1 && source !== 'skills-sh' ? btn('skill-search','上一页',String(result.page-1)) : '',
+        result.hasMore ? btn('skill-search','下一页',String(result.page+1)) : '');
+  } catch (error) {
+    if (request === skillMarketRequest && results.isConnected) results.textContent = error.message;
+  }
+}
+
+async function downloadSkill(index, button) {
+  const item = skillMarketItems[Number(index)];
+  if (!item || button.disabled) return;
+  const status = button.closest('.card').querySelector('[data-download-status]');
+  button.disabled = true;
+  button.textContent = '下载中…';
+  status.textContent = '正在下载正文和配套文件…';
+  try {
+    const {skill} = await api('skills/download',item);
+    item.installedId = skill.id;
+    button.textContent = '已下载';
+    status.textContent = `已保存 ${skill.source.files} 个文件，可在员工档案中分配。`;
+    if (!data.skills.some(record => record.id === skill.id)) data.skills.push(skill);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = '重试下载';
+    status.textContent = error.message;
+  }
 }
 
 function editMcp(id) {
@@ -1763,7 +1917,7 @@ function editSettings(id) {
       const zones = ['UTC', ...Intl.supportedValuesOf('timeZone')];
       edit('编辑浏览器偏好',
         select('外观', 'theme', [['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']], preferences.theme) +
-        select('任务默认视图', 'taskView', [['board', '看板'], ['list', '列表']], preferences.taskView) +
+        select('任务默认视图', 'taskView', [['board', '看板'], ['list', '列表'], ['table', '表格']], preferences.taskView) +
         select('时区', 'timeZone', [['local', '跟随浏览器'], ...zones.map(zone => [zone, zone])], preferences.timeZone), form => {
           preferences = Object.fromEntries(form);
           localStorage.setItem('office.preferences', JSON.stringify(preferences));
@@ -1856,15 +2010,30 @@ async function action(type, id, anchor) {
     case 'overview-settings': navigate('settings'); break;
     case 'overview-conversations': navigate('conversations'); break;
     case 'overview-fullscreen': toggleOverviewFullscreen(id); break;
+    case 'task-fullscreen':
+      fullscreenReturnHash = location.hash || '#tasks';
+      history.replaceState(null, '', '#overview');
+      route();
+      toggleOverviewFullscreen('page');
+      break;
     case 'office-view':
       officeFlat = !officeFlat;
       if (!officeFlat) office3dUnavailable = false;
       render();
       break;
-    case 'office-person':
+    case 'office-person': {
+      const actor = sceneActors.find(actor => actor.key === id);
+      if (fullscreenMode && actor) {
+        selectedActor = id;
+        if (actor.runId) await action('run-view', actor.runId);
+        else if (actor.taskId) await viewTask(actor.taskId);
+        else showPanel(actor.name, `<p>${escape(actor.label)}</p><p class="description">${escape(actor.detail || '当前没有正在执行的任务。')}</p>`);
+        break;
+      }
       selectedActor = selectedActor === id ? undefined : id;
       render();
       break;
+    }
     case 'office-orbit': officeScene?.rotate(Number(id)); break;
     case 'office-zoom-out':
     case 'office-zoom-in':
@@ -1953,9 +2122,26 @@ async function action(type, id, anchor) {
     case 'board-task-field': editBoardTaskField(id); break;
     case 'board-copy-link': await navigator.clipboard.writeText(boardTaskLink(id)); break;
     case 'task-view-switch':
-      taskView = (taskView ?? preferences.taskView) === 'list' ? 'board' : 'list';
-      render();
+      showBoardMenu(Object.entries(taskViewNames).map(([view,label])=>boardButton('task-view-set',label,view,view,{active:view===(taskView??preferences.taskView)})).join(''),anchor);
       break;
+    case 'task-view-set':
+      if (!taskViewNames[id]) break;
+      taskView = id;
+      preferences.taskView = id;
+      localStorage.setItem('office.preferences',JSON.stringify(preferences));
+      render(); break;
+    case 'task-group-toggle':
+      if(collapsedTaskGroups.has(id))collapsedTaskGroups.delete(id);else collapsedTaskGroups.add(id);
+      render(); break;
+    case 'task-selection-clear': selectedTaskRows.clear();render();break;
+    case 'task-export': exportTaskRows();break;
+    case 'task-table-group': tableGrouping=!tableGrouping;render();break;
+    case 'task-table-columns':
+      showBoardMenu(Object.entries(taskColumns).map(([key,label])=>boardButton('task-table-column',label,key,'',{active:!hiddenTaskColumns.has(key)})).join(''),anchor);break;
+    case 'task-table-column':
+      if(!taskColumns[id])break;
+      if(hiddenTaskColumns.has(id))hiddenTaskColumns.delete(id);else hiddenTaskColumns.add(id);
+      render();break;
     case 'agent-edit': editAgent(id); break;
     case 'scan-local': await api('discovery/scan', {}); break;
     case 'machine-pair': pairMachine(); break;
@@ -1980,6 +2166,9 @@ async function action(type, id, anchor) {
     case 'skill-edit':
     case 'project-edit': editNamed(type.split('-')[0], id); break;
     case 'mcp-edit': editMcp(id); break;
+    case 'skill-market': await openSkillMarket(); break;
+    case 'skill-search': await searchSkillMarket(Number(id)); break;
+    case 'skill-download': await downloadSkill(id,anchor); break;
     case 'task-edit': editTask(id); break;
     case 'conversation-task': editTask('', id); break;
     case 'budget-edit': editBudget(); break;
@@ -2096,7 +2285,7 @@ document.addEventListener('close', event => {
 }, true);
 document.addEventListener('fullscreenchange', () => {
   if (!document.fullscreenElement && fullscreenMode) {
-    endOverviewFullscreen();
+    endOverviewFullscreen(true);
     render();
   }
 });
@@ -2117,7 +2306,7 @@ document.addEventListener('keydown', event => {
     openBoardSubmenu(event.target, true);
   }
   if (event.key === 'Escape' && fullscreenMode && !document.fullscreenElement && !document.querySelector('dialog[open]')) {
-    endOverviewFullscreen();
+    endOverviewFullscreen(true);
     render();
   }
 });
@@ -2178,7 +2367,8 @@ document.addEventListener('click', async event => {
       if (button.closest('.task-board-menu')) closeBoardMenu();
       const menu = button.closest('.office-menu');
       if (menu) menu.open = false;
-      if (button.closest('#overview-dialog') && !['overview-details', 'project-space'].includes(type) && !type.startsWith('space-')) {
+      if (button.closest('#overview-dialog') && !['overview-details', 'project-space'].includes(type) &&
+        !type.startsWith('space-') && !['skill-search','skill-download'].includes(type)) {
         el('overview-dialog').close();
       }
       await action(type, button.dataset.id, button);
@@ -2437,4 +2627,22 @@ startWorkspace().catch(error => {
   el('account-heading').textContent = '无法连接工作台';
   el('account-description').textContent = '请确认本机服务正在运行，然后刷新页面。';
   accountFeedback(error.message, true);
+});
+
+
+document.addEventListener('input', event => {
+  if(event.target.id!=='task-quick-search')return;
+  taskFilters.q=event.target.value;taskFilterDraft.q=event.target.value;render();
+});
+document.addEventListener('change', event => {
+  const field=event.target;
+  if(field.dataset.taskSelect){
+    if(field.checked)selectedTaskRows.add(field.dataset.taskSelect);else selectedTaskRows.delete(field.dataset.taskSelect);
+    render();
+  }else if(field.dataset.taskSelectGroup){
+    for(const task of filteredTasks().filter(task=>field.dataset.taskSelectGroup==='all'||task.status===field.dataset.taskSelectGroup)){
+      if(field.checked)selectedTaskRows.add(task.id);else selectedTaskRows.delete(task.id);
+    }
+    render();
+  }
 });

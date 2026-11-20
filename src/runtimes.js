@@ -46,7 +46,9 @@ export function runtimeInstructions(run, runtime = run.agent.runtime) {
     run.workspaceContext && `工作区约定：\n${run.workspaceContext}`,
     personality && `工作风格：${personality}`, scope && `职责：${scope}`,
     ...(skills ?? []).filter(Boolean).map(skill =>
-      `技能 ${skill.name}：${skill.description}` + (skill.instructions ? `\n${skill.instructions}` : '')),
+      `技能 ${skill.name}：${skill.description}` +
+      (skill.source?.bundleId ? `\n技能目录：.office-skills/${skill.id}/，相对引用以此目录为基准。` : '') +
+      (skill.instructions ? `\n${skill.instructions}` : '')),
     run.kind === 'conversation' ? '这是讨论发言，只提交意见和结论。'
       : run.kind === 'comment' ? '这是任务讨论中的回复。直接输出要发布的评论正文，不执行原任务，不修改文件。'
         : '在职责内执行任务。完成后汇报结果和验证情况。',

@@ -72,8 +72,14 @@ export function officePresence(snapshot, overview) {
       avatar:resolveAvatar(person), label:officeStates[status.state].name,
       title:taskById.get(status.taskId)?.title, seatIndex:person.seatIndex};
   }
+  const boss = humans.find(person => person.userId === snapshot.user?.id && person.officeRole === 'boss')
+    ?? humans.find(person => person.officeRole === 'boss');
   return [...agents.map(person => actor(person, 'agent', agentStatus(person))),
-    ...humans.map(person => actor(person, 'human', humanStatus(person)))];
+    ...humans.map(person => ({...actor(person, 'human', humanStatus(person)),
+      ...(person.id === boss?.id ? {fixedSeat:'boss',seatIndex:privateOfficeSeatIndex, name:'老板 · '+person.name,
+        detail:'独立办公室 · '+(person.userId === snapshot.user?.id ? '当前登录管理员' : '管理员')} : {})})),
+    {key:'system:reception',kind:'system',name:'前台',state:'idle',label:'接待中',
+      detail:'固定前台接待',fixedSeat:'reception',avatar:resolveAvatar({avatarId:'coordinator'})}];
 }
 
 // The furniture model and character placement share these floor coordinates.
@@ -111,6 +117,11 @@ const deskSeats = desks.map(([x, z]) => {
 deskSeats.push({x:-6.9, z:-6.45, angle:0, seated:true, area:'desk',
   exit:[{x:-4.43,z:-6.45},{x:-4.43,z:-3.12},{x:-4.07,z:-3.12},{x:-4.07,z:aisleZ}]});
 export const baseWorkstations = deskSeats.length;
+export const privateOfficeSeatIndex = baseWorkstations - 1;
+export const fixedOfficeSeats = {
+  boss:{...deskSeats[privateOfficeSeatIndex],area:'private'},
+  reception:{x:-7.09,z:5.45,angle:0,seated:true,area:'reception',exit:[]},
+};
 const wingColumnWidth = 2.85;
 export const officeEast = count => 10 + Math.ceil(Math.max(0,count-baseWorkstations)/2)*wingColumnWidth;
 export const workstationLabel = index => 'W-' + String(index + 1).padStart(2,'0');
@@ -142,6 +153,10 @@ export function placeOfficeActors(actors, count = baseWorkstations) {
   };
 
   for (const actor of actors) {
+    if (fixedOfficeSeats[actor.fixedSeat]) {
+      positions.set(actor.key,fixedOfficeSeats[actor.fixedSeat]);
+      continue;
+    }
     if (actor.mode === 'meeting_room' || actor.mode === 'face_to_face') {
       const groups = actor.mode === 'meeting_room' ? meetings : pairs;
       if (!groups.has(actor.sessionId)) groups.set(actor.sessionId, []);

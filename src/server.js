@@ -18,6 +18,7 @@ import { createMailer } from './mailer.js';
 import { createMentionEmailDelivery } from './mention-email.js';
 import { scanAgents } from '../collector/office-collector.mjs';
 import { collectorCommand, collectorPackageSpec } from './collector-command.js';
+import { createSkillMarketplace, skillSources } from './skill-marketplace.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const data = resolve(process.env.OFFICE_DATA_DIR ?? join(root, 'data'));
@@ -62,6 +63,7 @@ const settings = createSettings(store, {concurrencyOverride: concurrency});
 const workspace = createWorkspace(store);
 const space = createProjectSpace(store, data);
 const office = createOffice(store, settings, space);
+const skillMarketplace = createSkillMarketplace(store,office,data);
 const discovery = createDiscovery(store);
 let closing = false;
 let scanPending;
@@ -214,6 +216,7 @@ const saveRoutes = {
   '/api/agents': office.saveAgent,
   '/api/teams': input => office.saveNamed('team', input),
   '/api/skills': input => office.saveNamed('skill', input),
+  '/api/skills/download': skillMarketplace.download,
   '/api/mcp-servers': office.saveMcpServer,
   '/api/projects': input => office.saveNamed('project', input),
   '/api/tasks': office.saveTask,
@@ -238,6 +241,7 @@ function requireUser(req, path, spaceRoute) {
 }
 
 function workspaceState(user) {
+  workspace.ensureAdministrator(user);
   const {mcpServers, ...records} = office.snapshot();
   const workspaceData = workspace.snapshot();
   const configuration = settings.snapshot();
@@ -333,6 +337,8 @@ const server = createServer(async (req, res) => {
         return res.end(source);
       }
       if (path === '/api/state') return json(res, workspaceState(user));
+      if (path === '/api/skills/sources') return json(res, skillSources);
+      if (path === '/api/skills/search') return json(res, await skillMarketplace.search(Object.fromEntries(url.searchParams)));
       if (path === '/api/users') return json(res, accounts.list());
       if (path === '/api/inbox') return json(res, settings.inbox(true, user));
       if (path === '/api/overview') return json(res, store.overview());

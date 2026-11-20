@@ -1,11 +1,12 @@
 import { integer } from './input.js';
-import { baseWorkstations } from '../public/office-presence.js';
+import { baseWorkstations, privateOfficeSeatIndex } from '../public/office-presence.js';
 
 const people = store => ['agent', 'human'].flatMap(kind =>
   store.list(kind).map(person => ({kind, person})));
 const occupiedSeats = rows => new Set(rows.map(({person}) => person.seatIndex).filter(Number.isInteger));
 
 function reserveSeat(occupied) {
+  occupied.add(privateOfficeSeatIndex);
   let index = 0;
   while (occupied.has(index)) index++;
   occupied.add(index);
@@ -13,7 +14,8 @@ function reserveSeat(occupied) {
 }
 
 export function assignWorkstation(store, existing) {
-  return existing?.seatIndex ?? reserveSeat(occupiedSeats(people(store)));
+  return Number.isInteger(existing?.seatIndex) && existing.seatIndex !== privateOfficeSeatIndex
+    ? existing.seatIndex : reserveSeat(occupiedSeats(people(store)));
 }
 
 export function backfillWorkstations(store) {
@@ -21,7 +23,7 @@ export function backfillWorkstations(store) {
     const rows = people(store);
     const occupied = occupiedSeats(rows);
     for (const {kind, person} of rows) {
-      if (!Number.isInteger(person.seatIndex)) {
+      if (!Number.isInteger(person.seatIndex) || person.seatIndex === privateOfficeSeatIndex) {
         store.put(kind, {...person, seatIndex:reserveSeat(occupied)});
       }
     }

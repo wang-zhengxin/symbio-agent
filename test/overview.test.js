@@ -139,3 +139,26 @@ test('Independent random deadlines and durations stay staggered after a long pau
   assert.equal(stroll(idle,90.99*60_000).size,1);
   assert.equal(stroll(idle,91*60_000).size,2);
 });
+
+
+test('Reception stays seated and the current administrator occupies the private office', () => {
+  const user={id:'admin-a',role:'admin'};
+  const snapshot={user,agents:[],humans:[
+    {id:'boss-a',userId:'admin-a',officeRole:'boss',name:'A',availability:'online',seatIndex:0},
+    {id:'boss-b',userId:'admin-b',officeRole:'boss',name:'B',availability:'online',seatIndex:1},
+  ],tasks:[],runs:[]};
+  const read=()=>officePresence(snapshot,officeOverview(snapshot,null));
+  const actors=read();
+  const seats=placeOfficeActors(actors);
+  const reception=actors.find(a=>a.key==='system:reception');
+  assert.equal(seats.get(reception.key).area,'reception');
+  assert.equal(seats.get(reception.key).seated,true);
+  assert.equal(seats.get('human:boss-a').area,'private');
+  assert.equal(seats.get('human:boss-b').area,'desk');
+  snapshot.tasks=[{id:'task',humanId:'boss-a',status:'in_progress'}];
+  assert.equal(read().find(a=>a.profileId==='boss-a').taskId,'task');
+  assert.equal(placeOfficeActors(read()).get('human:boss-a').area,'private');
+  snapshot.user={id:'admin-b',role:'admin'};
+  assert.equal(placeOfficeActors(read()).get('human:boss-b').area,'private');
+  assert.equal(placeOfficeActors(read()).get('human:boss-a').area,'desk');
+});

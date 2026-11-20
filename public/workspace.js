@@ -1,6 +1,6 @@
 import { officeOverview } from './overview.js';
 import { avatarFields } from './office-avatars.js';
-import { baseWorkstations, workstationLabel } from './office-presence.js';
+import { baseWorkstations, workstationLabel, officePresence, privateOfficeSeatIndex } from './office-presence.js';
 
 const pageNames = {
   overview: '实时监控', tasks: '项目工作台', people: '员工管理', agents: 'Agent 管理', layout: '布局管理',
@@ -158,7 +158,7 @@ export function createWorkspaceView(ui) {
     const columns = [['todo', '待开始'], ['in_progress', '进行中'], ['review', '待人工审核']];
     const board = `<section class="symbio-team-board"><header class="symbio-panel-head"><div><h2>团队任务看板</h2>
       <p>${link('ws-all-tasks', '打开任务看板 · ' + mainTasks.length)} / 分配给我的 ${mainTasks.filter(task => (snapshot.humans ?? []).find(h => h.id === task.humanId)?.name === operator).length}</p></div>
-      ${blockButton('task-edit', '＋ 添加任务')}</header>
+      <div class="actions">${blockButton('task-fullscreen', '↗ 大屏模式')}${blockButton('task-edit', '＋ 添加任务')}</div></header>
       <div class="symbio-board-columns">${columns.map(([state, title]) => {
         const items = mainTasks.filter(task => task.status === state || (state === 'todo' && task.status === 'blocked'));
         return `<section class="symbio-board-column"><header><strong>${state === 'review' ? '<span class="symbio-board-dot warn">●</span>' : '●'} ${escape(workflowName(state) ?? title)}</strong><span>${pad(items.length)}</span>
@@ -355,17 +355,15 @@ export function createWorkspaceView(ui) {
 
   function workstations(snapshot) {
     const count = snapshot.workstationCount ?? baseWorkstations;
-    const staff = [
-      ...snapshot.agents.map(person => ({...person, kind:'agent'})),
-      ...snapshot.humans.map(person => ({...person, kind:'human'})),
-    ];
+    const staff = officePresence(snapshot,officeOverview(snapshot,null)).filter(person => person.kind !== 'system');
     const assigned = new Map(staff.filter(person => Number.isInteger(person.seatIndex))
       .map(person => [person.seatIndex, person]));
     const rows = Array.from({length:count}, (_, index) => {
       const person = assigned.get(index);
-      const key = person && person.kind + ':' + person.id;
-      const caption = `<span>${workstationLabel(index)}</span><strong>${escape(person?.name ?? '空置')}</strong>
-        <small>${person ? person.kind === 'agent' ? 'Agent' : '真人' : '可分配'}</small>`;
+      const key = person?.key;
+      const reserved = index === privateOfficeSeatIndex;
+      const caption = `<span>${reserved ? '独立办公室' : workstationLabel(index)}</span><strong>${escape(person?.name ?? (reserved ? '老板专用' : '空置'))}</strong>
+        <small>${person ? person.kind === 'agent' ? 'Agent' : '真人' : reserved ? '保留座位' : '可分配'}</small>`;
       return person ? `<li><button type="button" data-action="office-person" data-id="${escape(key)}"
         aria-pressed="${ui.selectedOfficeActor() === key}">${caption}</button></li>` : `<li><div>${caption}</div></li>`;
     }).join('');
