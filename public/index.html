@@ -39,18 +39,9 @@
       <button type="button" class="symbio-organization chevron-trigger chevron-next" data-page="settings">
         <span><strong id="workspace-name">Agent 公司</strong><small>企业工作空间</small></span>
       </button>
-      <nav class="symbio-navigation" aria-label="工作空间">
-        <p>工作空间</p>
-        <button data-page="overview"><img src="/office-assets/nav-monitor.svg" alt="">实时监控</button>
-        <button data-page="tasks"><img src="/office-assets/nav-grid.svg" alt="">项目工作台</button>
-        <button data-page="people"><img src="/office-assets/nav-people.svg" alt="">员工管理 <small id="sidebar-people">0</small></button>
-        <button data-page="agents"><img src="/office-assets/nav-bot.svg" alt="">Agent 管理</button>
-        <button data-page="layout"><img src="/office-assets/nav-layout.svg" alt="">布局管理</button>
-        <p class="symbio-nav-section">组织与支持</p>
-        <button data-page="settings"><img src="/office-assets/nav-settings.svg" alt="">工作空间设置</button>
-        <button data-page="help"><img src="/office-assets/nav-help.svg" alt="">帮助中心</button>
-      </nav>
+      <nav class="symbio-navigation" aria-label="主导航"></nav>
       <div class="symbio-sidebar-footer">
+        <nav class="symbio-navigation-footer" aria-label="管理与帮助"></nav>
         <button data-page="finance" class="symbio-quota">
           <span>算力预算用量 <strong id="sidebar-quota-label">—</strong></span>
           <progress id="sidebar-quota" max="100" value="0" aria-label="预算使用率"></progress>
@@ -61,7 +52,7 @@
     </aside>
     <header class="symbio-topbar">
       <button type="button" class="symbio-mobile-menu" aria-label="显示导航" aria-expanded="false" data-action="ws-mobile-menu">☰</button>
-      <div class="symbio-breadcrumb"><span>工作空间</span><span aria-hidden="true">/</span><strong id="breadcrumb-page">实时监控</strong></div>
+      <div class="symbio-breadcrumb"><span id="breadcrumb-group">数字办公室</span><span aria-hidden="true">/</span><strong id="breadcrumb-page">办公室</strong></div>
       <button type="button" class="symbio-search" data-action="ws-search">
         <img src="/office-assets/top-search.svg" alt=""><span>搜索项目、任务或员工…</span><kbd>⌘ K</kbd>
       </button>
@@ -69,13 +60,14 @@
         <button type="button" class="symbio-bell" data-page="inbox" aria-label="收件箱">
           <img src="/office-assets/top-bell.svg" alt=""><span id="inbox-count" hidden></span>
         </button>
-        <button type="button" class="symbio-profile chevron-trigger" data-action="ws-profile">
+        <button type="button" class="symbio-profile chevron-trigger" popovertarget="profile-menu" aria-haspopup="menu" aria-controls="profile-menu" aria-expanded="false">
           <span><strong id="top-operator"></strong><small id="top-operator-role"></small></span>
         </button>
       </div>
     </header>
     <main id="main"><p class="empty">正在加载公司数据…</p></main>
   </div>
+  <div id="profile-menu" class="symbio-profile-menu" popover="auto" role="menu" aria-label="账户与工作空间"></div>
   <div id="task-board-menu" class="task-board-menu" role="group" aria-label="看板操作" hidden></div>
   <div id="task-board-submenu" class="task-board-menu task-board-submenu" role="group" aria-label="看板选项" hidden></div>
   <aside id="notice" class="notice" role="alert" hidden></aside>

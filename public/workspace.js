@@ -2,11 +2,8 @@ import { officeOverview } from './overview.js';
 import { avatarFields } from './office-avatars.js';
 import { baseWorkstations, workstationLabel, officePresence, privateOfficeSeatIndex } from './office-presence.js';
 
-const pageNames = {
-  overview: '实时监控', tasks: '项目工作台', people: '员工管理', agents: 'Agent 管理', layout: '布局管理',
-  settings: '工作空间设置', help: '帮助中心', inbox: '收件箱', discovery: '发现与入职', finance: '财务',
-  conversations: '协作会话',
-};
+import { navigationGroups, navigationFooter, navigationIcon, navigationLocation, settingsTitles } from './navigation.js';
+
 const roleNames = {worker: '执行员工', lead: '项目负责人', hr: '人事', finance: '财务'};
 const zoneNames = {work: '开放工位区', meeting: '会议室', ai: 'Agent 节点', lounge: '休闲区'};
 const zoneSeeds = {work: '研发协作区', meeting: '评审会议室', ai: 'AI 运行区', lounge: '休息区'};
@@ -59,19 +56,33 @@ export function createWorkspaceView(ui) {
   const assignedName = task => [task.assigneeId ? name('agents', task.assigneeId) : '', task.humanId ? name('humans', task.humanId) : '']
     .filter(Boolean).join(' · ') || '未分配';
 
-  function renderShell(page, snapshot) {
-    document.getElementById('breadcrumb-page').textContent = pageNames[page] ?? pageNames.overview;
+  function renderShell(page, snapshot, child = '') {
+    const mainNav = document.querySelector('.symbio-navigation');
+    if (mainNav.dataset.role !== snapshot.user.role) {
+      const allowed = item => snapshot.user.role === 'admin' || item.member;
+      const entry = item => `<button type="button" ${item.action ? `data-action="${item.action}"` : `data-page="${item.page}" data-child="${item.child || ''}"`}
+        title="${item.title}">${navigationIcon(item.icon)}<span>${item.title}</span></button>`;
+      mainNav.innerHTML = navigationGroups.map(group => {
+        const items = group.items.filter(allowed);
+        return items.length ? `<div class="symbio-nav-group"><p>${group.name}</p>${items.map(entry).join('')}</div>` : '';
+      }).join('');
+      document.querySelector('.symbio-navigation-footer').innerHTML = navigationFooter.filter(allowed).map(entry).join('');
+      mainNav.dataset.role = snapshot.user.role;
+    }
+    const location = navigationLocation(page, page === 'tasks' ? child : '');
+    document.getElementById('breadcrumb-group').textContent = page === 'settings'
+      ? (Object.entries(ui.settingsGroups).find(([,items]) => Object.hasOwn(items,child))?.[0] || '设置') : location.group;
+    document.getElementById('breadcrumb-page').textContent = page === 'settings' ? settingsTitles[child] || '设置' : location.title;
     document.getElementById('top-operator').textContent = snapshot.user.name;
     document.getElementById('top-operator-role').textContent = snapshot.user.role === 'admin' ? '工作空间管理员' : '工作空间成员';
-    document.getElementById('sidebar-people').textContent = snapshot.agents.length + (snapshot.humans?.length ?? 0);
     const budget = snapshot.ledger.find(row => row.scope === 'company');
     const usage = budget?.limit > 0 ? percent(budget.spent, budget.limit) : null;
     document.getElementById('sidebar-quota-label').textContent = usage === null ? '—' : usage + '%';
     document.getElementById('sidebar-quota').value = Math.min(usage ?? 0, 100);
     const bell = document.querySelector('.symbio-bell');
     bell.setAttribute('aria-label', snapshot.unread ? `收件箱，${snapshot.unread} 条未读` : '收件箱');
-    document.querySelectorAll('.symbio-navigation button').forEach(button => {
-      if (button.dataset.page === page) button.setAttribute('aria-current', 'page');
+    document.querySelectorAll('.symbio-navigation button, .symbio-navigation-footer button').forEach(button => {
+      if (button.dataset.page === page && (page !== 'tasks' || button.dataset.child === child)) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
   }
@@ -166,7 +177,7 @@ export function createWorkspaceView(ui) {
             <strong>${escape(task.title)}</strong><small>${escape(assignedName(task))}</small><span>${label(name('projects', task.projectId))}
               <small>${escape(task.dueDate === now ? '今日截止' : monthDay(task.dueDate))}</small></span></button>`).join('') || empty('暂无任务')}</div></section>`;
       }).join('')}</div></section>`;
-    return intro('5:9', greeting + '，' + operator, `未来 48 小时有 ${due.length} 项任务即将到期。`,
+    return intro('5:9', '项目', `${greeting}，${operator}。未来 48 小时有 ${due.length} 项任务即将到期。`,
       blockButton('ws-period', periodText, '', 'chevron-trigger') + blockButton('project-edit', '＋ 新建项目', '', 'primary'),
       metrics([
         ['进行中项目', projects.filter(item => item.status === '进行中' || item.status === '需关注').length, projects.length + ' 个项目'],
@@ -263,13 +274,13 @@ export function createWorkspaceView(ui) {
       return `<div><div class="symbio-inline"><strong>${escape(team.name)}</strong><span>${members.filter(item => item.type === 'human').length} / ${members.filter(item => item.type === 'agent').length}</span></div>
         ${progress(percent(members.length, all.length), team.name + '员工占比')}</div>`;
     });
-    return intro('5:13', '一个团队，无限协作可能。', '统一管理员工身份、团队归属与工作负载，让真人和 Agent 各尽所长。',
+    return intro('5:13', '成员', '维护真人与智能体的身份、岗位和团队归属。模型、技能与执行权限在「智能体」中配置。',
       blockButton('ws-export-people', '↓ 导出名单') + blockButton('ws-add-employee', '＋ 添加员工', '', 'primary'),
       metrics([['团队成员', all.length, '覆盖 ' + snapshot.teams.length + ' 个职能团队'], ['真人员工', humans.length, humans.filter(p => p.status === 'online').length + ' 人标记在线'],
         ['Agent 员工', ai.length, ai.filter(p => p.status !== 'offline' && p.status !== 'paused').length + ' 个当前可用'], ['人机协作率', percent(hybrid.length, assigned.length) + '%', '共同指派任务占比']]) +
       `<div class="symbio-people-grid">${directory}${employeeDetail(snapshot, selected)}</div>
       <section class="symbio-panel symbio-team-distribution"><div><h2>团队分布</h2><p class="symbio-muted">真人 / Agent</p></div>
-        ${distribution.join('') || empty('暂无小组。')}</section>`, 'symbio-people');
+        ${distribution.join('') || empty('暂无小队。')}</section>`, 'symbio-people');
   }
 
   function agentPage() {
@@ -316,7 +327,7 @@ export function createWorkspaceView(ui) {
           <div><h2>${escape(candidate.draft?.name || candidate.provider)}</h2><p>候选 Agent</p></div>${statusLabel('approval')}</header>
         <p class="symbio-agent-activity">${escape(candidate.draft?.scope || '等待确认入职档案')}</p>
         <footer>${link('candidate-review', '查看档案', candidate.id)}${link('candidate-approve', '处理审批 →', candidate.id)}</footer></article>`));
-    return intro('5:17', '你的 AI 团队，正在持续进化。', '配置 Agent 的能力、模型与权限，追踪每一次执行和交接。',
+    return intro('5:17', '智能体', '配置 Agent 的人格、模型、Skills 与权限，查看执行状态和交接记录。',
       blockButton('ws-runs', '运行记录') + blockButton('agent-edit', '＋ 创建 Agent', '', 'primary'),
       metrics([['在线 Agent', all.filter(person => !['offline','paused'].includes(person.status)).length + ' / ' + all.length,
         all.filter(person => ['offline','paused'].includes(person.status)).length + ' 个离线或已暂停'],
@@ -386,7 +397,7 @@ export function createWorkspaceView(ui) {
 
   function layoutEditor() {
     const draft = editableLayout();
-    if (!draft) return empty('请重启服务以加载布局管理。');
+    if (!draft) return empty('请重启服务以加载空间与工位。');
     const snapshot = data();
     const layout = snapshot.layout;
     const model = officeOverview(snapshot, null);
@@ -449,7 +460,7 @@ export function createWorkspaceView(ui) {
       ['attention','需要你关注','展示验收、入职和截止提醒'],
     ].map(([key, title, description]) => `<label><span><strong>${title}</strong><small>${description}</small></span>
       <input type="checkbox" role="switch" data-widget="${key}"${draft.widgets[key] ? ' checked' : ''}></label>`).join('')}</div>`);
-    return intro('5:21', '为协作，留出更好的空间。', '编排数字办公室的区域、席位与监控组件，构建适合团队的工作现场。',
+    return intro('5:21', '空间与工位', '编排数字办公室的区域、席位与监控组件，构建适合团队的工作现场。',
       layoutTab === 'seats' ? '' : `<span class="symbio-muted">${layoutDirty ? '有未保存的修改' : layout.savedAt ? '已保存于 ' + escape(localTime(layout.savedAt).slice(0, 5)) : '工作空间布局'}</span>` +
         blockButton('ws-layout-save','保存草稿') + blockButton('ws-layout-publish','发布布局 ↗','','primary'),
       toolRow + (layoutTab === 'space' ? `<div class="symbio-layout-grid">${regionPanel}${canvas}${properties}</div>${templatesSection}`
@@ -461,11 +472,11 @@ export function createWorkspaceView(ui) {
     return intro('help', '帮助中心', '管理项目、团队、Agent 和数字办公室。',
       '', `<div class="symbio-help-grid">${[
       ['项目与任务','创建项目，分配任务并验收 Agent 交付。','tasks'],
-      ['员工与小组','维护真人档案、Agent 员工和团队归属。','people'],
-      ['运行与采集','配对异机采集客户端，扫描来源并审批入职。','discovery'],
-      ['办公室布局','编辑区域与组件，保存草稿或发布到实时监控。','layout'],
-      ['工作空间设置','管理运行策略、标签、通知及个人偏好。','settings'],
-      ['协作会话','发起双人交流或多人会议，并查看发言记录。','conversations'],
+      ['员工与小队','维护真人档案、Agent 员工和团队归属。','people'],
+      ['发现与入职','配对异机采集客户端，扫描来源并审批入职。','discovery'],
+      ['办公室布局','编辑区域与组件，保存草稿或发布到办公室。','layout'],
+      ['设置','管理成员、任务配置、MCP 和个人偏好。','settings'],
+      ['聊天','发起双人交流或多人会议，并查看发言记录。','conversations'],
     ].map(([title, description, target]) => panel(title, `<p class="symbio-muted">${description}</p>`, link('ws-nav','打开 →',target))).join('')}</div>`,
     'symbio-help');
   }
@@ -583,14 +594,6 @@ export function createWorkspaceView(ui) {
         else await ui.action('task-view', recordId);
         break;
       }
-      case 'ws-profile':
-        ui.showPanel(data().user.name,
-          `<div class="stack">${blockButton('account-open','我的账户')}
-          ${data().user.role === 'admin' ? blockButton('account-users','用户管理') + blockButton('ws-nav','工作空间设置','settings') +
-          blockButton('ws-nav','财务账本','finance') + blockButton('ws-nav','发现与入职','discovery') +
-          blockButton('ws-nav','协作会话','conversations') : ''}
-          ${blockButton('account-logout','退出登录')}</div>`);
-        break;
       case 'ws-period': period = period === 7 ? 30 : 7; render(); break;
       case 'ws-all-tasks': navigate('tasks', 'all'); break;
       case 'ws-projects': ui.showPanel('所有项目', projectTable(projectRows(data()))); break;
@@ -618,7 +621,7 @@ export function createWorkspaceView(ui) {
       case 'ws-layout-tab': navigate('layout',id); break;
       case 'ws-workstations-add':
         edit('新增工位', input('数量','amount',1,{type:'number',min:1,max:24,required:true}) +
-          '<p class="description">新增工位会同步到实时监控，并优先分配给后续入职的员工。</p>',
+          '<p class="description">新增工位会同步到办公室，并优先分配给后续入职的员工。</p>',
         form => api('layout/workstations',{amount:Number(form.get('amount'))}), '新增工位');
         break;
       case 'ws-layout-view': layoutView = id; render(); break;
@@ -676,6 +679,56 @@ export function createWorkspaceView(ui) {
   }
 
   function bind() {
+    const profileMenu = document.getElementById('profile-menu');
+    const profileTrigger = document.querySelector('.symbio-profile');
+    profileMenu.addEventListener('beforetoggle', event => {
+      const opening = event.newState === 'open';
+      profileTrigger.setAttribute('aria-expanded', String(opening));
+      if (!opening) return;
+      const user = data().user;
+      const items = [['account-open','个人资料','', 'account'],
+        ...(user.role === 'admin' ? [
+          ['account-users','账号与权限','', 'users'], ['ws-nav','设置','settings','settings'],
+        ] : []), ['account-logout','退出登录','','logout']];
+      const icons = {
+        account:'<circle cx="10" cy="6" r="3"/><path d="M4 17v-2a6 6 0 0 1 12 0v2"/>',
+        users:'<circle cx="7" cy="6" r="3"/><path d="M1 17v-2a6 6 0 0 1 12 0v2M13 3a3 3 0 0 1 0 6m2 3a5 5 0 0 1 4 5"/>',
+        settings:'<path d="M3 5h14M3 10h14M3 15h14M7 3v4m6 1v4m-6 1v4"/>',
+        finance:'<rect x="3" y="2" width="14" height="16" rx="2"/><path d="M6 6h8M6 10h3m3 0h2m-8 4h3m3 0h2"/>',
+        discovery:'<circle cx="9" cy="9" r="6"/><path d="m14 14 4 4M6 9h6M9 6v6"/>',
+        chat:'<path d="M4 3h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8l-5 3v-3a2 2 0 0 1-1-2V5a2 2 0 0 1 2-2Z"/>',
+        logout:'<path d="M8 3H3v14h5m-1-7h11m-4-4 4 4-4 4"/>',
+      };
+      profileMenu.innerHTML = `<div class="profile-menu-heading" role="presentation"><strong>${escape(user.name)}</strong><small>${user.role === 'admin' ? '工作空间管理员' : '工作空间成员'}</small></div>` +
+        items.map(([type,title,id,icon],index) => `<button type="button" role="menuitem" ${index === 0 ? 'autofocus' : ''}
+          class="profile-menu-item ${icon === 'logout' ? 'profile-menu-logout' : ''}" data-action="${type}" data-id="${id}">
+          <svg viewBox="0 0 20 20" aria-hidden="true">${icons[icon]}</svg><span>${title}</span></button>`).join('');
+      const bounds = profileTrigger.getBoundingClientRect();
+      profileMenu.style.right = Math.max(12, window.innerWidth - bounds.right) + 'px';
+      profileMenu.style.top = Math.min(bounds.bottom + 12, window.innerHeight - 100) + 'px';
+      profileMenu.style.maxHeight = Math.max(80, window.innerHeight - bounds.bottom - 24) + 'px';
+    });
+    profileMenu.addEventListener('click', event => {
+      if (event.target.closest('[role="menuitem"]')) profileMenu.hidePopover();
+    });
+    profileMenu.addEventListener('keydown', event => {
+      if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const items = [...profileMenu.querySelectorAll('[role="menuitem"]')];
+      const current = items.indexOf(document.activeElement);
+      const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[index]?.focus();
+    });
+    profileTrigger.addEventListener('keydown', event => {
+      if (!['ArrowDown','ArrowUp'].includes(event.key)) return;
+      event.preventDefault();
+      profileMenu.showPopover();
+      const items = profileMenu.querySelectorAll('[role="menuitem"]');
+      items[event.key === 'ArrowUp' ? items.length - 1 : 0]?.focus();
+    });
+    window.addEventListener('resize', () => profileMenu.hidePopover());
+    window.addEventListener('hashchange', () => profileMenu.hidePopover());
     document.getElementById('workspace-search-input').addEventListener('input', searchResults);
     document.addEventListener('keydown', event => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && data() && !document.querySelector('dialog[open]')) {

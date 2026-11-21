@@ -92,6 +92,7 @@ const mime = {
   'office-figure.js': 'text/javascript; charset=utf-8',
   'office-scene.css': 'text/css; charset=utf-8',
   'workspace.js': 'text/javascript; charset=utf-8',
+  'navigation.js': 'text/javascript; charset=utf-8',
   'workspace.css': 'text/css; charset=utf-8',
   'style.css': 'text/css; charset=utf-8',
 };
@@ -252,7 +253,9 @@ function workspaceState(user) {
       tunnelHost:['0.0.0.0','::'].includes(collectorHost) ? '127.0.0.1' : collectorAddressHost}};
   return {...base, agents:records.agents.map(({id, name, teamId}) => ({id, name, teamId})),
     skills:records.skills.map(({id, name, description}) => ({id, name, description})),
-    humans:workspaceData.humans.map(({id, name, teamId}) => ({id, name, teamId})),
+    humans:workspaceData.humans.map(({id, name, teamId, userId, email}) => ({id, name, teamId,
+      ...(userId === user.id || (user.email && email?.toLowerCase() === user.email.toLowerCase())
+        ? {userId:user.id} : {})})),
     runs:records.runs.map(({error, usage, ...run}) => run),
     ledger:[], conversations:[], machines:[], candidates:[],
     settings:{workflow:configuration.workflow, labels:configuration.labels, properties:configuration.properties,

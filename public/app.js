@@ -1,3 +1,4 @@
+import { settingsGroups, settingsTitles, navigationIcon, taskMatchesView } from './navigation.js';
 import { createOverview, officeOverview } from './overview.js';
 import { createWorkspaceView } from './workspace.js';
 import { avatarFields, officeAvatars, resolveAvatar } from './office-avatars.js';
@@ -46,7 +47,7 @@ let overviewData, overviewDetails, officeZoom = 100, fullscreenMode, fullscreenR
 let officeScene, officeModule, figurePreview, officeFlat = false, office3dUnavailable = false;
 let sceneActors = [], selectedActor;
 const officeStrolls = createOfficeStrolls();
-let fullTaskBoard = false;
+let fullTaskBoard = false, taskScopePage = 'all';
 let taskFilters = {}, taskFilterDraft = {};
 let boardScope = 'all', boardFilterOpen = false, boardShowMeta = true, boardHideEmpty = false;
 let boardMenuAnchor, boardSubmenuAnchor;
@@ -55,14 +56,8 @@ const priorityLabels = {none: '无', low: '低', medium: '中', high: '高', urg
 const propertyLabels = {text: '文本', number: '数字', select: '单选'};
 const notificationLabels = {review: '任务待验收', failures: '执行失败或中断', hiring: '入职档案待确认', machines: '采集机器离线',
   mentions: '任务评论中的 @ 提及'};
-const settingsGroups = {
-  '个人': {account: '我的账户', preferences: '偏好', notifications: '通知'},
-  '工作区': {workspace: '基本资料', workflow: '任务流程', labels: '标签', properties: '自定义字段'},
-  '管理': {users: '用户管理', runtime: '运行与采集', organization: '组织与预算', capabilities:'Skills 与 MCP', audit: '变更记录'},
-};
-const settingsTitles = Object.assign({}, ...Object.values(settingsGroups));
 const memberPages = new Set(['tasks', 'settings', 'inbox', 'help']);
-const memberSettings = new Set(['account', 'preferences']);
+const memberSettings = new Set(['account', 'preferences', 'notifications']);
 const accountRoles = {admin:'管理员', member:'普通成员'};
 const accountStates = {pending:'待审批', active:'已启用', disabled:'已停用'};
 const memberActions = new Set([
@@ -76,7 +71,8 @@ const memberActions = new Set([
 ]);
 const isMember = () => signedInUser?.role === 'member';
 const actionAllowed = (type, id) => !isMember() || (memberActions.has(type) &&
-  (!['setting-edit', 'settings-section'].includes(type) || memberSettings.has(id)));
+  (type !== 'settings-section' || memberSettings.has(id)) &&
+  (type !== 'setting-edit' || ['account','preferences'].includes(id)));
 
 function restrictMemberControls(root) {
   if (!isMember()) return;
@@ -370,7 +366,7 @@ function filteredTasks() {
   const {q, project, assignee, priority, label, status} = taskFilters;
   const query = q?.trim().toLowerCase();
   const priorityRank = Object.keys(priorityLabels);
-  return data.tasks.filter(task => !task.parentId).filter(task => {
+  return data.tasks.filter(task => taskMatchesView(task,taskScopePage,signedInUser,data.humans)).filter(task => {
     const assigned = task.assigneeId || task.humanId;
     const inScope = boardScope === 'all' || (boardScope === 'assigned' && assigned) ||
       (boardScope === 'unassigned' && !assigned) || (boardScope === 'project' && task.projectId);
@@ -481,9 +477,10 @@ function tasks() {
   const view = taskViewNames[taskView ?? preferences.taskView] ? taskView ?? preferences.taskView : 'board';
   const filterCount = Object.values(taskFilters).filter(Boolean).length;
   return `<header class="task-board-header">
-    <div>${boardButton('ws-nav', '返回项目工作台', 'tasks', 'arrow', {compact:true})}<h1>我的任务</h1></div>
+    <div>${boardButton('ws-nav', '返回项目', 'tasks', 'arrow', {compact:true})}<h1>${taskScopePage === 'mine' ? '我的任务' : taskScopePage === 'scheduled' ? '定时任务' : '任务'}</h1></div>
     ${boardButton('task-edit', '新建任务', '', 'plus')}
   </header>
+  ${taskScopePage !== 'all' ? `<p class="task-scope-description">${taskScopePage === 'mine' ? '显示分配给当前账号所绑定真人成员的任务；子任务在任务详情中查看。' : '显示设置了派发时间的任务。目前支持一次性定时派发，创建任务时填写「定时派发」时间。'}</p>` : ''}
   <div class="task-board-toolbar">
     <div class="task-board-controls" aria-label="任务范围">${Object.entries(boardScopes).map(([scope, label]) =>
       boardButton('board-scope', label, scope, '', {active:boardScope === scope})).join('')}</div>
@@ -993,9 +990,9 @@ function discovery() {
 }
 
 function finance() {
-  return section('财务账本', '本机 Codex 和 Pi 的累计 Token 用量与内部额度。', btn('budget-edit', '设置预算', '', true)) +
+  return section('统计', '查看 Codex 和 Pi 的 Token 消耗、预留额度与预算余额。', btn('budget-edit', '设置预算', '', true)) +
     `<section class="panel table"><table><thead><tr><th>范围</th><th>对象</th><th>预算</th><th>已上报</th><th>仍预留</th><th>可分配</th><th>用量未上报</th></tr></thead>
-    <tbody>${data.ledger.map(row => `<tr><td>${{company: '公司', team: '小组', agent: '员工'}[row.scope]}</td>
+    <tbody>${data.ledger.map(row => `<tr><td>${{company: '公司', team: '小队', agent: '员工'}[row.scope]}</td>
       <td>${escape(row.scope === 'company' ? '本机公司' : name(row.scope + 's', row.id))}</td>
       ${[row.limit, row.spent, row.reserved, row.available, row.unknown].map(value =>
         `<td class="number${value < 0 ? ' error' : ''}">${number(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></section>
@@ -1008,7 +1005,7 @@ function finance() {
 }
 
 function conversations() {
-  return section('协作会话', '双人交流与多人会议按轮次安排真实发言。', btn('conversation-new', '发起讨论', '', true)) +
+  return section('聊天', '查看智能体之间的双人会话与多人会议；任务内沟通请使用任务评论。', btn('conversation-new', '发起讨论', '', true)) +
     (data.conversations.length ? `<div class="stack">${[...data.conversations].reverse().map(conversation => {
       const run = find('runs', conversation.currentRunId);
       return `<article class="card">
@@ -1054,11 +1051,11 @@ function cataloguePanel(kind) {
   return settingsPanel(title, content, btn(kind + '-edit', isLabel ? '新建标签' : '新建字段', '', true));
 }
 
-function settingsBody() {
+function settingsBody(section = settingsPage) {
   const {workspace, workflow, runtime, notifications, runtimeConcurrencyLocked} = data.settings;
-  switch (settingsPage) {
+  switch (section) {
     case 'account':
-      return settingsPanel('我的账户', rows([
+      return settingsPanel('个人信息', rows([
         ['显示名称', signedInUser.name], ['用户名', signedInUser.username],
         ['邮箱', signedInUser.email || '—'],
         ['@ 邮件通知', signedInUser.mentionEmail ? '已开启' : '已关闭'],
@@ -1066,23 +1063,26 @@ function settingsBody() {
       ]), actions(btn('account-mention-email', signedInUser.mentionEmail ? '关闭 @ 邮件通知' : '开启 @ 邮件通知'),
         btn('account-password', '修改密码'), btn('account-logout', '退出登录')));
     case 'users': return userManagement();
+    case 'people': return workspaceView.people();
     case 'workspace':
-      return settingsPanel('工作区资料', rows([
+      return settingsPanel('工作区信息', rows([
         ['名称', workspace.name], ['简介', workspace.description], ['本机操作者', workspace.operator],
         ['任务编号示例', workspace.taskPrefix + '-1'], ['提供给 Agent 的工作区上下文', workspace.context],
       ]), editSetting('workspace'));
     case 'preferences':
-      return settingsPanel('此浏览器的偏好', rows([
+      return settingsPanel('偏好设置', rows([
         ['外观', {system: '跟随系统', light: '浅色', dark: '深色'}[preferences.theme]],
         ['任务默认视图', taskViewNames[preferences.taskView]],
         ['显示时区', preferences.timeZone === 'local' ? '跟随浏览器' : preferences.timeZone],
       ]), editSetting('preferences'));
     case 'notifications':
-      return settingsPanel('收件箱通知', rows(Object.entries(notificationLabels)
+      return settingsPanel('我的邮件通知', rows([['任务评论中的 @ 提及', signedInUser.mentionEmail ? '已开启邮件通知' : '仅在收件箱接收']]),
+        btn('account-mention-email', signedInUser.mentionEmail ? '关闭 @ 邮件通知' : '开启 @ 邮件通知')) +
+      (isMember() ? '' : settingsPanel('工作区通知规则', rows(Object.entries(notificationLabels)
         .map(([key, label]) => [label, notifications[key] ? '开启' : '关闭'])),
-      actions(btn('goto-inbox', '打开收件箱'), editSetting('notifications')));
+      actions(btn('goto-inbox', '打开收件箱'), editSetting('notifications'))));
     case 'workflow':
-      return settingsPanel('任务流程', rows([
+      return settingsPanel('任务状态', rows([
         ...data.taskStates.map(status => [labels[status], workflow.names[status]]),
         ['新任务默认优先级', priorityLabels[workflow.defaultPriority]],
       ]), editSetting('workflow'));
@@ -1101,23 +1101,15 @@ function settingsBody() {
         ['远程采集接收端', data.collector?.listening ? data.collector.protocol.toUpperCase() + ' · 端口 ' + data.collector.port : '未启用'],
       ]), actions(btn('goto-discovery', '查看采集机器'), btn('scan-local', '立即扫描')));
     }
-    case 'organization': {
-      const budget = data.ledger.find(item => item.scope === 'company');
-      return settingsPanel('组织与权限', rows([
-        ['员工', data.agents.length + ' 名'], ['小组', data.teams.length + ' 个'], ['技能', data.skills.length + ' 项'],
-      ]), actions(btn('goto-people', '管理员工'), btn('team-edit', '创建小组'), btn('settings-section', 'Skills 与 MCP', 'capabilities'))) +
-        settingsPanel('团队', data.teams.length ? `<div class="grid">${data.teams.map(team => namedCard('team', team)).join('')}</div>` : empty('暂无团队。')) +
-        settingsPanel('Token 预算', rows([
-          ['公司总额度', budget?.limit == null ? '未设置' : number(budget.limit)],
-          ['可分配额度', number(budget?.available)],
-        ]), actions(btn('budget-edit', '设置预算'), btn('goto-finance', '查看账本')));
-    }
-    case 'capabilities':
+    case 'organization':
+      return settingsPanel('小队', data.teams.length ? `<div class="grid">${data.teams.map(team => namedCard('team', team)).join('')}</div>` : empty('暂无小队。创建后可为成员分组，并按小队分配任务。'), btn('team-edit','创建小队','',true));
+    case 'skills':
       return settingsPanel('Skills', data.skills.length
         ? `<div class="grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>`
         : empty('暂无技能。可从技能目录下载，或上传 SKILL.md。'),
-        actions(btn('skill-market', '下载技能', '', true),btn('skill-edit', '创建技能'))) +
-        settingsPanel('MCP 服务', data.mcpServers.length
+        actions(btn('skill-market', '下载技能', '', true),btn('skill-edit', '创建技能')));
+    case 'mcp':
+      return settingsPanel('MCP 服务', data.mcpServers.length
           ? `<div class="grid">${data.mcpServers.map(server => `<article class="card">
             <div class="card-head"><h3>${escape(server.name)}</h3>${btn('mcp-edit', '编辑', server.id)}</div>
             <p>${server.transport === 'stdio' ? 'stdio' : 'Streamable HTTP'} · ${server.enabled ? '已启用' : '已停用'}</p>
@@ -1135,10 +1127,10 @@ function settingsBody() {
 }
 
 function userManagement() {
-  if (!usersData) return settingsPanel('用户管理', empty('正在加载账户…'));
+  if (!usersData) return settingsPanel('账号与权限', empty('正在加载账户…'));
   const ordered = [...usersData].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'));
   const pending = ordered.filter(user => user.status === 'pending').length;
-  return settingsPanel('用户管理', `<p class="description">${ordered.length} 个账户，${pending} 个等待审批。</p>
+  return settingsPanel('账号与权限', `<p class="description">${ordered.length} 个账户，${pending} 个等待审批。</p>
     <div class="table"><table><thead><tr><th>账户</th><th>邮箱</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead>
     <tbody>${ordered.map(user => `<tr><td><strong>${escape(user.name)}</strong><small class="account-username">${escape(user.username)}</small></td>
       <td>${escape(user.email || '—')}</td><td>${accountRoles[user.role]}</td><td>${badge({pending:'review',active:'completed',disabled:'blocked'}[user.status], accountStates[user.status])}</td>
@@ -1175,7 +1167,7 @@ function managementEventName(event) {
   return ({
     'settings.updated': '保存设置', 'catalogue.saved': '保存分类配置',
     'catalogue.archived': event.payload.archived ? '归档分类配置' : '恢复分类配置',
-    'agent.saved': '保存员工', 'team.saved': '保存小组', 'skill.saved': '保存技能', 'mcp.saved':'保存 MCP 服务',
+    'agent.saved': '保存员工', 'team.saved': '保存小队', 'skill.saved': '保存技能', 'mcp.saved':'保存 MCP 服务',
     'machine.paired': '创建机器配对', 'machine.revoked': '撤销机器配对',
     'candidate.reviewed': '提交入职档案', 'candidate.approved': '确认入职',
     'candidate.dismissed': '忽略候选', 'budget.updated': '更新预算',
@@ -1187,15 +1179,22 @@ function managementEventName(event) {
 
 function settingsScreen() {
   if (!data.settings) return empty('请重启工作台服务以加载设置。');
-  const groups = isMember() ? {'个人':{account:settingsTitles.account, preferences:settingsTitles.preferences}} : settingsGroups;
-  return section('设置', isMember() ? '管理个人账户和浏览器偏好。' : '管理个人账户、工作区权限和 Agent 运行。') +
-    `<div class="settings-layout">
-      <nav class="settings-nav" aria-label="设置导航">${Object.entries(groups).map(([group, sections]) =>
-        `<p>${escape(group)}</p>${Object.entries(sections).map(([key, label]) =>
-          `<button data-action="settings-section" data-id="${key}"${settingsPage === key ? ' aria-current="true"' : ''}>${escape(label)}</button>`).join('')}`).join('')}
+  const groups = isMember() ? {'个人设置':{account:settingsTitles.account, preferences:settingsTitles.preferences, notifications:settingsTitles.notifications}} : settingsGroups;
+  const groupName = Object.entries(groups).find(([,sections]) => Object.hasOwn(sections,settingsPage))?.[0] || '设置';
+  const icons = {account:'person',preferences:'settings',notifications:'inbox',workspace:'office',people:'team',users:'person',workflow:'tasks',labels:'project',properties:'layout',mcp:'monitor',audit:'tasks'};
+  return `<div class="settings-layout settings-workspace">
+      <nav class="settings-nav" aria-label="设置导航"><h1>${navigationIcon('layout')}设置</h1>${Object.entries(groups).map(([group, sections]) =>
+        `<div class="settings-nav-group"><p>${escape(group)}</p>${Object.entries(sections).map(([key, label]) =>
+          `<button data-action="settings-section" data-id="${key}"${settingsPage === key ? ' aria-current="page"' : ''}>${navigationIcon(icons[key])}${escape(label)}</button>`).join('')}</div>`).join('')}
       </nav>
-      <div class="settings-content">${settingsBody()}</div>
+      <div class="settings-content"><header class="settings-content-heading"><p>${escape(groupName)}</p><h1>${escape(settingsTitles[settingsPage])}</h1></header>${settingsBody()}</div>
     </div>`;
+}
+function teamResourcePage(kind) {
+  const copy = {teams:['小队','将真人与智能体按职责分组，维护协作团队。','organization'],
+    skills:['Skills','下载、创建和维护技能，并在智能体档案中分配。','skills'],
+    runtime:['运行时','配置执行并发、超时和默认额度，管理本机与远程采集。','runtime']}[kind];
+  return section(copy[0],copy[1]) + settingsBody(copy[2]);
 }
 
 function inboxScreen() {
@@ -1228,16 +1227,21 @@ function inboxScreen() {
 const workspaceView = createWorkspaceView({data: () => data, escape, btn, input: (...args) => input(...args),
   select, empty, number, localTime, localDateTime, edit, api, render, navigate, find, name, editTask,
   editNamed, taskKey, workflowName, timeZone: () => timeOptions().timeZone, showPanel, openModal, action, runTable,
-  selectedOfficeActor:() => selectedActor});
+  settingsGroups, selectedOfficeActor:() => selectedActor});
 const renderers = {overview: overviewScreen, tasks: () => fullTaskBoard ? tasks() : workspaceView.workbench(),
   people: workspaceView.people, agents: workspaceView.agentPage, layout: workspaceView.layoutEditor, help: workspaceView.help,
+  teams:()=>teamResourcePage('teams'), skills:()=>teamResourcePage('skills'), runtime:()=>teamResourcePage('runtime'),
   discovery, finance, conversations, settings: settingsScreen, inbox: inboxScreen};
 
 function route() {
   if (!signedInUser) return;
   const [requested, child] = location.hash.slice(1).split('/');
+  const legacyRoute = requested === 'people' ? 'settings/people' : requested === 'settings'
+    ? ({organization:'teams',capabilities:'skills',runtime:'runtime'})[child] : null;
+  if (legacyRoute) { location.replace('#' + legacyRoute); return; }
   page = isMember() && !memberPages.has(requested) ? 'tasks' : Object.hasOwn(renderers, requested) ? requested : 'overview';
-  fullTaskBoard = page === 'tasks' && child === 'all';
+  fullTaskBoard = page === 'tasks' && ['all','mine','scheduled'].includes(child);
+  taskScopePage = fullTaskBoard ? child : 'all';
   closeBoardMenu();
   workspaceView.closeMobile();
   if (page !== 'overview' && fullscreenMode) endOverviewFullscreen();
@@ -1261,6 +1265,7 @@ function render() {
   document.body.classList.toggle('office-overview-active', page === 'overview');
   el('main').classList.toggle('office-overview-main', page === 'overview');
   el('main').classList.toggle('task-board-page', fullTaskBoard);
+  el('main').classList.toggle('settings-page', page === 'settings');
   el('main').classList.toggle('workspace-designed', ['people','agents','layout','help'].includes(page) ||
     (page === 'tasks' && !fullTaskBoard));
   const workspaceName = data.settings?.workspace.name || 'Agent 公司';
@@ -1269,7 +1274,7 @@ function render() {
   const unread = el('inbox-count');
   unread.hidden = !(data.unread > 0);
   unread.textContent = data.unread > 99 ? '99+' : (data.unread ?? '');
-  workspaceView.renderShell(page, data);
+  workspaceView.renderShell(page, data, page === 'settings' ? settingsPage : fullTaskBoard ? taskScopePage : '');
   if (page === 'layout' && workspaceView.dragging()) return;
   const focus = document.activeElement;
   const key = el('main').contains(focus) ? focus.dataset : {};
@@ -1497,7 +1502,7 @@ function edit(title, html, handler, submit = '保存') {
 }
 
 function editNamed(kind, id) {
-  const label = {project: '项目', team: '小组', skill: '技能'}[kind];
+  const label = {project: '项目', team: '小队', skill: '技能'}[kind];
   const value = find(kind + 's', id) ?? {};
   const projectFields = kind === 'project' ? input('负责人', 'owner', value.owner) +
     input('截止日期', 'dueDate', value.dueDate, {type:'date'}) +
@@ -1736,7 +1741,7 @@ const observedOption = ['observed', '仅采集（无平台执行权限）'];
 function agentFields(agent, runtimes, required = false) {
   return input('姓名', 'name', agent.name, {required: true}) +
     select('岗位', 'role', Object.entries(roleLabels), agent.role) +
-    select('小组', 'teamId', optional('teams'), agent.teamId) +
+    select('小队', 'teamId', optional('teams'), agent.teamId) +
     avatarFields(agent) +
     area('人格', 'personality', agent.personality, required) +
     area('职责范围', 'scope', agent.scope, required) +
@@ -1795,7 +1800,7 @@ function approveCandidate(id) {
   const {draft, reviewVersion} = find('candidates', id);
   edit('确认入职', `<div class="card"><h3>${escape(draft.name)} · ${escape(roleLabels[draft.role])}</h3>
     <p>人格 ${escape(draft.personality)}</p><p>职责 ${escape(draft.scope)}</p>
-    <p>小组 ${escape(name('teams', draft.teamId))}</p>
+    <p>小队 ${escape(name('teams', draft.teamId))}</p>
     <p>人物形象 ${escape(resolveAvatar(draft).name)}</p>
     <p>技能 ${escape(draft.skillIds.map(id => name('skills', id)).join('、') || '—')}</p>
     <p>MCP ${escape((draft.mcpServerIds ?? []).map(id => name('mcpServers', id)).join('、') || '—')}</p>
@@ -1875,7 +1880,7 @@ function editTask(id, conversationId = '', preset = {}) {
 
 function editBudget() {
   const targets = [['company:local', '公司总预算'],
-    ...options('teams').map(([id, label]) => ['team:' + id, '小组 · ' + label]),
+    ...options('teams').map(([id, label]) => ['team:' + id, '小队 · ' + label]),
     ...options('agents').map(([id, label]) => ['agent:' + id, '员工 · ' + label])];
   edit('设置累计 Token 预算', select('对象', 'target', targets, 'company:local') +
     budgetInput('Token 上限', 'limit', data.ledger[0].limit ?? 100_000, 0), form => {
@@ -2359,7 +2364,7 @@ document.addEventListener('click', async event => {
     return;
   }
   if (button.dataset.page) {
-    navigate(button.dataset.page);
+    navigate(button.dataset.page, button.dataset.child);
   }
   if (button.dataset.action) {
     try {
