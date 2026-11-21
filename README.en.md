@@ -2,7 +2,7 @@
 
 [简体中文](README.md)
 
-Symbio Agent is a local workspace for managing AI agents and human collaborators. The task board, people directory, finance tools, and collaboration views share tasks, run records, and events stored in SQLite. The 3D office shows both face-to-face conversations and group meetings.
+Symbio Agent is an independently built local workspace for AI agents and human collaborators. It runs tasks through Codex and Pi and manages members, squads, Skills, MCP, project files, and token budgets. Board, list, table, and 3D office views share task and execution events in SQLite and update through SSE.
 
 ## Getting started
 
@@ -15,7 +15,7 @@ npm start
 
 Open the landing page or go directly to the workspace. On first startup, Symbio seeds a product development team, a delivery notes skill, and five staff profiles. Create the first administrator account when you open the workspace. [Landing page](http://127.0.0.1:4317/) · [Workspace](http://127.0.0.1:4317/office)
 
-Both administrators and members register with an email verification code. Members select **注册账号** (Register) on the sign-in page. Administrators approve accounts, change roles, or disable access under **设置 → 用户管理** (Settings → User Management). Existing users sign in with their username and password. Users who have yet to link an email address verify one before entering the workspace.
+Both administrators and members register with an email verification code. Members select **注册账号** (Register) on the sign-in page. Administrators approve accounts, change roles, or disable access under **设置 → 工作区管理 → 账号与权限** (Settings → Workspace Management → Accounts and Permissions). Existing users sign in with their username and password. Users who have yet to link an email address verify one before entering the workspace.
 
 Users can enable email notifications for @mentions under **设置 → 通知** (Settings → Notifications). Email notifications are off by default. When posting a comment, the author can choose whether to email mentioned users who have opted in. The email includes the comment and a task link. Mentions also appear in the workspace inbox.
 
@@ -48,20 +48,53 @@ The workspace listens on IPv4 loopback. Run one service instance per data direct
 
 ## Workspace
 
-The sidebar groups shortcuts (search, new task, inbox, my tasks, chat), work (tasks, projects, scheduled tasks), AI Team (agents, squads, Skills, runtime, discovery), and the Digital Office (office, space and workstations). Statistics, Settings, and Help stay at the bottom. My Tasks shows top-level tasks assigned to the human profile linked to the signed-in account. Scheduled tasks currently support one-time dispatch. Settings uses a three-column layout: main navigation, settings categories, and content.
+Navigation labels, page titles, and breadcrumbs use the same names. The following entries are available to administrators; members only see pages they are allowed to access.
 
-- **3D office.** Digital Office → Office renders an isometric office with WebGL. Choose from eight avatars and preview their animations when creating or editing a human, agent, or onboarding profile. After 30–60 minutes of continuous idle time, an avatar looks for a free break spot and returns to its desk after 5–10 minutes. Tasks and conversations take priority. Two participants sit face to face, and a third participant moves the discussion into the meeting room. Select an avatar or roster entry to see its status and related tasks. The floor plan shows the published custom layout.
+| Group | Entries | Purpose |
+| --- | --- | --- |
+| Shortcuts | Search, New Task, Inbox, My Tasks, Chat | Find work, handle notifications, and open collaboration sessions |
+| Work | Tasks, Projects, Scheduled Tasks | Run and review tasks, track projects, and schedule one-time dispatch |
+| AI Team | Agents, Squads, Skills, Runtime, Discovery and Onboarding | Configure capabilities, teams, execution, and candidate approval |
+| Digital Office | Office, Space and Workstations | View live 3D activity, edit layouts, and manage desks |
+| Bottom navigation | Statistics, Settings, Help | Review token usage and budgets, workspace settings, and personal preferences |
+
+The account button at the top right opens a compact menu with direct links to the profile, accounts and permissions, and settings. Click outside or press Esc to dismiss it; arrow keys move between entries.
+
+### Task views
+
+- **Tasks** offers board, list, and table views and remembers the selected view in the browser. Lists support collapsible status groups. Tables support status grouping, column visibility, title or ID search, and CSV export of filtered or selected tasks.
+- **My Tasks** shows top-level tasks assigned to the human profile linked to the signed-in account. **Scheduled Tasks** shows tasks with a dispatch time; scheduling currently supports one-time dispatch.
+- Subtasks appear inside their parent task details rather than on the main task board. Views share task filters, details, comments, and status actions.
+- Open **Large-screen Mode** from Tasks or the team board on Projects to display the full-screen 3D office. Drag to change the camera angle and select a character to inspect its status and related task in a right-side panel. Exiting returns to the original page.
+
+### Digital office and projects
+
+
+- **3D office.** Digital Office → Office renders an isometric office with WebGL. Choose from eight avatars and preview their animations when creating or editing a human, agent, or onboarding profile. Each avatar has an independent randomized break schedule: after 30–60 minutes of continuous idle time, it finds an available break spot, can sit in the lounge, and returns after 5–10 minutes. Tasks and conversations take priority. Two participants sit face to face, and a third participant moves the discussion into the meeting room. Select an avatar or roster entry to see its status and related tasks. The floor plan shows the published custom layout.
+- **Fixed roles.** The receptionist stays at reception, and the human boss linked to the current administrator stays in the private office.
 - **Workstations.** Space and Workstations → Workstations shows the same 3D desks and staff assignments. New staff use available desks first. When all desks are taken, the office expands on the right. Administrators can add desks in batches, and both views update together.
 - **Projects.** See project progress, the team calendar, and the day's schedule. Projects can have an owner and due date. Tasks can have both a human owner and an agent assignee. Human owners can advance tasks manually and submit them for review.
-- **People and agents.** Edit human profiles, filter and export the directory, and set human availability on the profile. Agents shows configuration, runs, usage, and pending approvals. Pausing dispatch keeps queued tasks in place and lets active runs finish.
+- **People and agents.** Use **Settings → Workspace Management → Members** to edit human profiles, filter and export the directory, and set availability. **Agents** shows configuration, runs, usage, and pending approvals. Pausing dispatch keeps queued tasks in place and lets active runs finish.
 - **Layout management.** Edit zones, capacity, team assignments, and display widgets. Save a draft to continue editing later or publish it to apply the configuration in Office.
 
 ## Workspace settings
 
+Settings uses three columns: main navigation, settings categories, and content. On narrow screens, category buttons wrap and content remains scrollable.
+
+| Category | Pages |
+| --- | --- |
+| Personal Settings | Profile, Preferences, Notifications |
+| Workspace Management | General, Members, Accounts and Permissions |
+| Task Configuration | Task Statuses, Labels, Properties |
+| Connections and Extensions | MCP |
+| System Records | Operation History |
+
+Member profiles describe human and agent identities, roles, and team membership. Accounts and Permissions manages real users who can sign in. Skills, Squads, and Runtime have their own sidebar entries.
+
 - **General** manages the workspace name, description, operator, and task numbering. Codex and Pi use the workspace context captured when a run is queued. Task history retains its identifiers.
-- **Workflow**, **Labels**, and **Custom Fields** let you change board stage names, set a default priority, and classify tasks. Custom fields support text, numbers, and single-select values. Archiving a field preserves existing values.
+- **Task Statuses**, **Labels**, and **Properties** let you change board stage names, set a default priority, and classify tasks. Custom fields support text, numbers, and single-select values. Archiving a field preserves existing values.
 - **Runtime** manages local concurrency, time limits, default token reservations, and local scan settings. **Squads** manages teams, **Statistics** manages usage and budgets, **Skills** manages skills, and **Settings → Connections and Extensions → MCP** manages tool connections.
-- **Notifications** controls which review requests, run failures, onboarding requests, and machine outages appear in the inbox. You can mark all notifications as read. **Change History** shows recent administrative actions.
+- **Notifications** controls personal @mention emails. Administrators can also configure workspace inbox event types. The inbox supports marking all notifications as read. **Operation History** shows recent administrative actions.
 - **Preferences** stores appearance, the default task view, and time zone in the current browser. Search tasks by ID or content, or filter by project, owner, priority, and label. Open a task to see its run history and post comments.
 
 ## Agent discovery and onboarding
@@ -93,9 +126,9 @@ The collector reads the process table on macOS and Linux and uses PowerShell CIM
 
 ## Run a task
 
-1. Choose or create a staff profile under **组织与员工** (Organization and Staff). Codex requires a signed-in CLI with App Server support. Pi requires a CLI with JSON event mode and a working model provider. Run `pi` and use `/login` to sign in to a provider, or configure a local model. Leave the model field blank to use the runner's local configuration.
+1. Choose or create an agent under **AI 团队 → 智能体** (AI Team → Agents). Codex requires a signed-in CLI with App Server support. Pi requires a CLI with JSON event mode and a working model provider. Run `pi` and use `/login` to sign in to a provider, or configure a local model. Leave the model field blank to use the runner's local configuration.
 2. To try the workflow, select the demo runner for a staff profile. Its events are marked as demo events. It makes no model calls and incurs no token usage.
-3. Create a task on the task board with an assignee, acceptance criteria, and any prerequisites. Start the task and open Run Details to see the plan, tool activity, output, artifact paths, and runner errors.
+3. Create a task under **Work → Tasks** with an assignee, acceptance criteria, and any prerequisites. Start the task and open Run Details to see the plan, tool activity, output, artifact paths, and runner errors.
 4. A successful run moves the task into review. Dependent tasks can start after it is approved. Failed tasks can be retried, and previous runs remain in history.
 
 Each run uses its own directory under `data/workspaces/<run ID>`. The UI shows that directory and any new files. The Codex sandbox enforces read-only access or writes limited to the run directory. Responsibility and skill descriptions guide agent behavior. HR, finance, and meeting turns run in read-only mode.
@@ -131,7 +164,7 @@ These public sources require no API key. The server needs network access to the 
 
 - Assign staffing tasks to **HR**, such as hiring a test engineer for the product development team. HR uses organization tools to create regular staff profiles with read-only access by default. Administrators can also configure roles, personalities, responsibilities, skills, teams, and runners directly.
 - Assign usage reporting to **Finance**. Finance can query the ledger and adjust team or individual allowances within the company budget. The company budget is configured in the UI. The ledger records tokens reported by runners for each run. The budget is a cumulative internal allowance. Before a run starts, Symbio reserves tokens to enforce the limit, deducts usage as reports arrive, and releases the remaining reservation when the run ends.
-- Start a discussion in **Collaboration Sessions** with at least two agents. Two agents start a face-to-face session. Adding a third moves the group into a meeting room. Each agent takes a turn, with each turn queued and metered separately. You can create a follow-up task linked to the discussion. Ending the session cancels queued turns or stops the current turn.
+- Start a discussion in **Chat** with at least two agents. Two agents start a face-to-face session. Adding a third moves the group into a meeting room. Each agent takes a turn, with each turn queued and metered separately. You can create a follow-up task linked to the discussion. Ending the session cancels queued turns or stops the current turn.
 - Each staff member handles one run at a time. Different staff members can work concurrently up to the configured limit. After an unexpected service shutdown, active runs are marked interrupted and pending tasks are rescheduled.
 
 ## Data flow and verification
@@ -150,4 +183,4 @@ Run Details shows the instructions supplied by the workspace, task or conversati
 npm test
 ```
 
-The test suite covers transaction rollback, concurrent token reservations, duplicate reports, meeting upgrades and cancellation, role-based tool permissions, Codex protocol replay, process discovery, machine authorization, and onboarding approval.
+The test suite covers transaction rollback, concurrent token reservations and duplicate reports, meeting upgrades and cancellation, role-based tool permissions, Codex protocol replay, discovery and onboarding, shared delivery conflicts, skill downloads, desk assignment, navigation, and personal task filtering.
