@@ -1,8 +1,1 @@
-/* The provider's stylesheet names this font "Suisse Int'l". */
-@font-face {
-  font-family: 'Suisse Intl';
-  src: url('https://db.onlinewebfonts.com/t/13ab13418f633c1b0516fed6e30bedbc.woff2') format('woff2');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
+/* System and CJK editorial typography stack — no external font network dependency. */

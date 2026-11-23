@@ -1,11 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ChevronDown, Menu, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Cpu, Layers, Menu, Sparkles, X } from 'lucide-react';
 
-const BAR_HEIGHTS = [
-  23, 40, 53, 40, 33, 14, 7, 17, 75, 65,
-  88, 75, 65, 47, 33, 88, 4, 7, 9, 14,
-  95, 65, 79, 37, 7, 40, 17, 20, 62, 47,
-  92, 72,
+const RHYTHM_BARS = [
+  28, 42, 56, 38, 62, 74, 48, 82, 68, 90,
+  76, 54, 86, 94, 72, 60, 84, 78, 64, 52,
+];
+
+const NAV_LINKS = [
+  { label: '数字办公室', href: '/office#overview' },
+  { label: '任务看板', href: '/office#tasks/all' },
+  { label: '智能体团队', href: '/office#agents' },
+  { label: '空间与工位', href: '/office#layout' },
 ];
 
 function Animate({
@@ -14,13 +19,11 @@ function Animate({
   children: ReactNode;
   delay?: number;
   className?: string;
-  direction?: 'up' | 'down' | 'left' | 'right' | 'scale';
+  direction?: 'up' | 'down' | 'scale';
 }) {
   const directionClass = {
     up: 'animate-fade-up',
     down: 'animate-fade-down',
-    left: 'animate-fade-left',
-    right: 'animate-fade-right',
     scale: 'animate-fade-scale',
   }[direction];
 
@@ -31,50 +34,154 @@ function Animate({
   );
 }
 
-function RevenueCard() {
-  const maxHeight = Math.max(...BAR_HEIGHTS);
+function SymbioMark() {
+  return (
+    <span
+      className="grid grid-cols-2 grid-rows-2 place-content-center gap-[3px] w-[30px] h-[30px] rounded-[9px] bg-[#222120] shrink-0"
+      aria-hidden="true"
+    >
+      <i className="w-[7px] h-[7px] rounded-[2px] bg-[#ece7e3]" />
+      <i className="w-[6px] h-[6px] rounded-[2px] bg-[#c1b8b0] self-center justify-self-center" />
+      <i className="w-[6px] h-[6px] rounded-[2px] bg-[#c1b8b0] self-center justify-self-center" />
+      <i className="w-[7px] h-[7px] rounded-[2px] bg-[#ece7e3]" />
+    </span>
+  );
+}
+
+function OfficePreviewCard() {
+  const maxBar = Math.max(...RHYTHM_BARS);
 
   return (
-    <Animate delay={900} direction="scale" className="w-full max-w-[405px] mx-auto lg:mx-0">
-      <div className="w-full rounded-[24px] sm:rounded-[33px] bg-[rgba(17,16,15,0.35)] backdrop-blur-[20px] p-5 sm:p-8 pb-5 sm:pb-6">
-        <p className="text-white text-[16px] sm:text-[20px] font-[450] leading-[20px] mb-3 sm:mb-4">Revenue Growth</p>
-        <p className="mb-2 sm:mb-3">
-          <span className="text-white text-[28px] sm:text-[46px] font-[450] leading-[1]">$14,205,890</span>
-          <span className="text-white/20 text-[28px] sm:text-[46px] font-[450] leading-[1]">.00</span>
-        </p>
-        <div className="flex items-center gap-[10px] mb-6 sm:mb-8">
-          <span className="px-[6px] py-[7px] bg-white/20 rounded-[6px] text-white text-[12px] sm:text-[14px] font-[450] leading-[14px]">+32.4%</span>
-          <span className="text-white/80 text-[12px] sm:text-[14px] font-[450] leading-[14px] opacity-70">vs. previous period ($10.7M)</span>
+    <Animate delay={120} direction="scale" className="w-full max-w-[540px] mx-auto lg:mx-0">
+      <div className="w-full rounded-[24px] bg-white/80 backdrop-blur-[20px] border border-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_24px_60px_-20px_rgba(45,39,31,0.18)] p-5 sm:p-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <p className="symbio-serif text-[22px] leading-tight text-[#252423] tracking-[0.02em]">数字办公室</p>
+            <p className="text-[12px] text-[#5d5956] mt-0.5">1F 协作空间 · 实时沙盘视图</p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[#e2e8e2] text-[#3d614e] text-[11px] font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#3d614e]" />
+            实时同步
+          </span>
         </div>
-        <div className="relative">
-          <div className="flex items-end gap-[1.5px] h-[80px] sm:h-[100px]" aria-hidden="true">
-            {BAR_HEIGHTS.map((height, index) => {
-              const isProjected = index >= 28;
-              const heightPercent = (height / maxHeight) * 100;
+
+        {/* Isometric architectural preview matching the 3D workbench aesthetic */}
+        <div className="relative rounded-[16px] overflow-hidden border border-[#d8cec2] bg-[radial-gradient(ellipse_at_48%_38%,#f8efe2,#e9dccb_68%,#d4c0aa)] p-4 mb-4">
+          <svg
+            viewBox="0 0 460 215"
+            className="w-full h-auto block"
+            role="img"
+            aria-label="Symbio 等距数字办公室示意图"
+          >
+            {/* Floor slab */}
+            <polygon points="230,22 422,110 230,198 38,110" fill="#e6dccd" stroke="#8a745b" strokeWidth="1.5" />
+            <polygon points="38,110 230,198 230,206 38,118" fill="#a28668" />
+            <polygon points="422,110 230,198 230,206 422,118" fill="#82684e" />
+
+            {/* Back left & right architectural walls */}
+            <polygon points="230,22 38,110 38,72 230,-16" fill="#688089" opacity="0.92" />
+            <polygon points="230,22 422,110 422,72 230,-16" fill="#7c9398" opacity="0.88" />
+            <polygon points="230,22 332,68 230,115 128,68" fill="#d9d1c3" opacity="0.65" />
+
+            {/* Glass partition */}
+            <polygon points="274,64 358,102 358,76 274,38" fill="#9fb5b4" opacity="0.45" stroke="#53686f" strokeWidth="1" />
+
+            {/* Desk cluster (warm wood tones) */}
+            {[
+              [158, 92],
+              [216, 118],
+              [114, 116],
+              [172, 142],
+            ].map(([x, y], idx) => (
+              <g key={idx} transform={`translate(${x}, ${y})`}>
+                <polygon points="0,0 38,17 18,27 -20,10" fill={idx % 2 === 0 ? '#c6a278' : '#b28960'} stroke="#7f6143" strokeWidth="0.8" />
+                <polygon points="6,1 20,7 16,10 2,4" fill="#3a4549" />
+              </g>
+            ))}
+
+            {/* Meeting table */}
+            <g transform="translate(274, 128)">
+              <polygon points="0,0 56,25 28,39 -28,14" fill="#a9805a" stroke="#78583c" strokeWidth="0.9" />
+              <circle cx="-12" cy="18" r="4.5" fill="#4d535a" />
+              <circle cx="16" cy="31" r="4.5" fill="#4d535a" />
+              <circle cx="36" cy="16" r="4.5" fill="#4d535a" />
+              <circle cx="10" cy="4" r="4.5" fill="#4d535a" />
+            </g>
+
+            {/* Server racks in AI zone */}
+            <g transform="translate(328, 86)">
+              <polygon points="0,0 16,7 16,-15 0,-22" fill="#333a3c" />
+              <polygon points="16,7 26,2 26,-20 16,-15" fill="#4c5659" />
+              <circle cx="7" cy="-12" r="1.4" fill="#7ec9a2" />
+              <circle cx="7" cy="-6" r="1.4" fill="#7ec9a2" />
+            </g>
+
+            {/* Plants */}
+            <circle cx="88" cy="112" r="9" fill="#516b46" />
+            <circle cx="94" cy="107" r="6" fill="#71845a" />
+            <circle cx="358" cy="118" r="8" fill="#516b46" />
+            <circle cx="364" cy="113" r="5" fill="#71845a" />
+          </svg>
+
+          {/* Floating frosted role pills */}
+          <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[#fdf9f2]/95 border border-[#5f4f3b]/15 shadow-sm text-[11px] text-[#252423] font-medium">
+            <span className="w-2 h-2 rounded-full bg-[#3d614e]" />
+            研发负责人 · 拆解需求
+          </div>
+          <div className="absolute bottom-3 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[#fdf9f2]/95 border border-[#5f4f3b]/15 shadow-sm text-[11px] text-[#252423] font-medium">
+            <span className="w-2 h-2 rounded-full bg-[#3e849e]" />
+            开发工程师 · 编写交付
+          </div>
+          <div className="absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[#fdf9f2]/95 border border-[#5f4f3b]/15 shadow-sm text-[11px] text-[#252423] font-medium">
+            <span className="w-2 h-2 rounded-full bg-[#7761a4]" />
+            评审会议室 · 同步验收
+          </div>
+        </div>
+
+        {/* Summary KPI strip */}
+        <div className="grid grid-cols-3 gap-2.5 mb-4">
+          <div className="rounded-[12px] bg-[#f5f2ee] border border-[#e3ddd7] px-3 py-2.5">
+            <p className="text-[11px] text-[#5d5956]">协同成员</p>
+            <p className="text-[20px] font-semibold text-[#252423] leading-tight mt-1 tabular-nums">真人 + AI</p>
+          </div>
+          <div className="rounded-[12px] bg-[#f5f2ee] border border-[#e3ddd7] px-3 py-2.5">
+            <p className="text-[11px] text-[#5d5956]">交付闭环</p>
+            <p className="text-[20px] font-semibold text-[#3d614e] leading-tight mt-1">人工验收</p>
+          </div>
+          <div className="rounded-[12px] bg-[#f5f2ee] border border-[#e3ddd7] px-3 py-2.5">
+            <p className="text-[11px] text-[#5d5956]">算力治理</p>
+            <p className="text-[20px] font-semibold text-[#252423] leading-tight mt-1">Token 预算</p>
+          </div>
+        </div>
+
+        {/* Collaboration rhythm chart */}
+        <div className="rounded-[12px] bg-[#f5f2ee]/80 border border-[#e3ddd7] px-3.5 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-medium text-[#5d5956]">今日协同节拍</span>
+            <span className="text-[11px] text-[#3d614e] font-medium">多运行器稳定在线</span>
+          </div>
+          <div className="flex items-end gap-[4px] h-[44px]" aria-hidden="true">
+            {RHYTHM_BARS.map((height, index) => {
+              const isRecent = index >= 16;
               return (
                 <div
                   key={index}
-                  className="flex-1 rounded-[0.5px] opacity-0 animate-bar-grow origin-bottom"
+                  className="flex-1 rounded-[2px] opacity-0 animate-bar-grow origin-bottom"
                   style={{
-                    height: `${heightPercent}%`,
-                    backgroundColor: isProjected ? 'rgba(255,255,255,0.1)' : 'white',
-                    animationDelay: `${1100 + index * 30}ms`,
+                    height: `${(height / maxBar) * 100}%`,
+                    backgroundColor: isRecent ? '#3d614e' : '#bfb8b0',
+                    animationDelay: `${180 + index * 18}ms`,
                   }}
                 />
               );
             })}
           </div>
-          <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-            {[0, 1, 2, 3, 4].map(index => (
-              <div key={index} className="absolute top-0 bottom-0 w-px bg-white/10" style={{ left: `${((index + 1) / 5) * 100}%` }} />
-            ))}
-          </div>
-          <div className="flex justify-between mt-3">
-            {['10:00', '12:00', '14:00', '16:00', '16:00'].map((time, index) => (
-              <span key={index} className="text-[9px] sm:text-[10px] font-[450] leading-[10px] text-white/80" style={{ opacity: index >= 3 ? 0.4 : 1 }}>
-                {time}
-              </span>
-            ))}
+          <div className="flex justify-between mt-2 text-[10px] text-[#7a746e] tabular-nums">
+            <span>09:00</span>
+            <span>11:00</span>
+            <span>13:00</span>
+            <span>15:00</span>
+            <span>17:00</span>
           </div>
         </div>
       </div>
@@ -84,62 +191,90 @@ function RevenueCard() {
 
 export default function Hero() {
   return (
-    <section className="relative w-full h-screen overflow-hidden bg-[#080A19]">
-      <video
-        className="absolute inset-0 w-full h-full object-cover"
-        src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260813_092641_de52eb87-daf2-41db-92cb-7a56eae012a5.mp4"
-        autoPlay
-        loop
-        muted
-        playsInline
-        aria-hidden="true"
-      />
-      <div className="relative z-10 h-full flex flex-col">
-        <Nav />
-        <div className="flex-1 flex items-center py-8 max-lg:min-h-0 max-lg:overflow-y-auto max-lg:[align-items:safe_center]">
-          <div className="w-full max-w-[1800px] mx-auto px-5 sm:px-8 md:px-[82px] flex flex-col lg:flex-row lg:items-center lg:justify-between gap-10 lg:gap-12">
-            <div className="max-w-[593px]">
-              <Animate delay={300} direction="up">
-                <h1 className="text-white text-[36px] sm:text-[52px] md:text-[64px] lg:text-[72px] font-normal leading-[0.95] mb-5 sm:mb-8">
-                  Elevate your essential data to new heights
-                </h1>
-              </Animate>
-              <Animate delay={500} direction="up">
-                <p className="text-white/80 text-[16px] sm:text-[18px] md:text-[20px] font-[450] leading-[1.3] max-w-[370px] mb-7 sm:mb-10">
-                  Advanced reasoning systems and predictive models built for the unknown
-                </p>
-              </Animate>
-              <Animate delay={700} direction="up">
-                <div className="flex flex-wrap gap-3 sm:gap-4">
-                  <button
-                    type="button"
-                    className="h-[46px] sm:h-[51px] px-5 sm:px-[27px] bg-[#E9E9E9] rounded-[12px] text-[#0A0707] text-[14px] sm:text-[15.5px] font-[450] leading-[15.5px] transition-opacity hover:opacity-90"
-                    onClick={() => window.location.assign('/office')}
-                  >
-                    Book a demo
-                  </button>
-                  <button
-                    type="button"
-                    className="h-[46px] sm:h-[51px] px-5 sm:px-[27px] rounded-[12px] border border-white text-white text-[14px] sm:text-[15.5px] font-[450] leading-[15.5px] transition-opacity hover:opacity-80"
-                    onClick={() => window.location.assign('/office#conversations')}
-                  >
-                    Talk with the team
-                  </button>
+    <section className="relative w-full min-h-screen flex flex-col">
+      <Nav />
+      <main className="flex-1 flex items-center py-10 sm:py-14">
+        <div className="w-full max-w-[1320px] mx-auto px-5 sm:px-8 lg:px-12 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+          <div className="lg:col-span-6 max-w-[580px]">
+            <Animate delay={0} direction="up">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/75 border border-[#484239]/10 text-[12px] font-medium text-[#3d614e] mb-6 shadow-sm">
+                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                人机共生 · 本机多智能体协同工作空间
+              </span>
+            </Animate>
+
+            <Animate delay={40} direction="up">
+              <h1 className="text-[#252423] text-[36px] sm:text-[48px] xl:text-[56px] font-bold leading-[1.15] tracking-[-0.025em] mb-5">
+                让每一份人机协作，
+                <br />
+                都清晰可见。
+              </h1>
+            </Animate>
+
+            <Animate delay={80} direction="up">
+              <p className="text-[#5d5956] text-[15px] sm:text-[17px] leading-[1.7] max-w-[490px] mb-8">
+                在温暖直观的数字办公室里管理真人成员与 AI 智能体团队——实时洞察工位动态、调度多运行器任务、把控文件交付与 Token 预算。
+              </p>
+            </Animate>
+
+            <Animate delay={120} direction="up">
+              <div className="flex flex-wrap items-center gap-3.5 mb-10">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 h-[48px] px-6 bg-[#242323] hover:bg-[#383634] rounded-[12px] text-[#f7f5f2] text-[15px] font-semibold transition-all shadow-[0_8px_20px_-8px_rgba(36,35,35,0.45)]"
+                  onClick={() => window.location.assign('/office#overview')}
+                >
+                  进入数字办公室
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 h-[48px] px-6 bg-white/80 hover:bg-white rounded-[12px] border border-[#484239]/15 text-[#252423] text-[15px] font-medium transition-colors"
+                  onClick={() => window.location.assign('/office#tasks/all')}
+                >
+                  查看任务看板
+                </button>
+              </div>
+            </Animate>
+
+            <Animate delay={160} direction="up">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-6 border-t border-[#484239]/12">
+                <div className="flex items-start gap-2.5">
+                  <Layers className="w-4 h-4 text-[#3d614e] mt-0.5 shrink-0" aria-hidden="true" />
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#252423]">3D 空间沙盘</p>
+                    <p className="text-[12px] text-[#5d5956] mt-0.5">实时工位与在岗状态</p>
+                  </div>
                 </div>
-              </Animate>
-            </div>
-            <RevenueCard />
+                <div className="flex items-start gap-2.5">
+                  <Cpu className="w-4 h-4 text-[#3d614e] mt-0.5 shrink-0" aria-hidden="true" />
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#252423]">多运行器编排</p>
+                    <p className="text-[12px] text-[#5d5956] mt-0.5">Codex / Pi / 异机采集</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-[#3d614e] mt-0.5 shrink-0" aria-hidden="true" />
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#252423]">人工验收闭环</p>
+                    <p className="text-[12px] text-[#5d5956] mt-0.5">交付审阅与预算管控</p>
+                  </div>
+                </div>
+              </div>
+            </Animate>
+          </div>
+
+          <div className="lg:col-span-6 flex lg:justify-end">
+            <OfficePreviewCard />
           </div>
         </div>
-      </div>
+      </main>
     </section>
   );
 }
 
 function Nav() {
   const [isOpen, setIsOpen] = useState(false);
-  const navItems = ['Platform', 'Pricing', 'Resources', 'Blog'];
-  const navItemClass = 'text-white/80 text-[14px] font-[450] leading-[14px] hover:text-white transition-colors';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -162,83 +297,107 @@ function Nav() {
 
   return (
     <>
-      <nav className="w-full max-w-[1800px] mx-auto px-5 sm:px-8 md:px-[82px] pt-[20px] sm:pt-[30px] flex items-center justify-between relative z-50" aria-label="Main navigation">
+      <nav
+        className="w-full max-w-[1320px] mx-auto px-5 sm:px-8 lg:px-12 pt-5 sm:pt-7 flex items-center justify-between relative z-50"
+        aria-label="主导航"
+      >
         <Animate delay={0} direction="down">
-          <div className="flex items-center gap-2.5">
-            <svg width="28" height="28" viewBox="0 0 256 256" fill="none" className="sm:w-[32px] sm:h-[32px]" aria-hidden="true">
-              <path fill="white" d="M 256 256 L 178 256 C 150.386 256 128 233.614 128 206 L 128 256 L 0 256 L 0 192 C 0 156.654 28.654 128 64 128 C 99.346 128 128 156.654 128 192 L 128 128 L 256 128 Z M 78 0 C 105.614 0 128 22.386 128 50 L 128 0 L 256 0 L 256 64 C 256 99.346 227.346 128 192 128 C 156.654 128 128 99.346 128 64 L 128 128 L 0 128 L 0 0 Z" />
-            </svg>
-            <span className="text-white text-[22px] sm:text-[26px] font-[450] leading-none tracking-[-0.02em]">Apogee</span>
+          <a href="/office" className="inline-flex items-center gap-2.5 no-underline text-[#252423]">
+            <SymbioMark />
+            <span className="text-[24px] font-semibold leading-none tracking-[-0.02em]">Symbio</span>
+          </a>
+        </Animate>
+
+        <Animate delay={80} direction="down" className="hidden lg:block">
+          <div className="h-[46px] px-2 flex items-center gap-1 bg-white/65 border border-white/80 rounded-[12px] backdrop-blur-[16px] shadow-[0_6px_20px_-10px_rgba(37,36,35,0.12)]">
+            {NAV_LINKS.map(item => (
+              <button
+                key={item.label}
+                type="button"
+                className="px-4 h-[34px] rounded-[8px] text-[#5d5956] hover:text-[#252423] hover:bg-white/75 text-[13px] font-medium transition-colors"
+                onClick={() => window.location.assign(item.href)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </Animate>
-        <Animate delay={100} direction="down" className="hidden lg:block">
-          <div className="h-[52px] px-6 flex items-center gap-[30px] bg-[rgba(10,7,7,0.35)] rounded-[11px] backdrop-blur-[17px]">
-            <button type="button" className={`flex items-center gap-[5px] ${navItemClass}`} onClick={() => window.location.assign('/office#overview')}>
-              Platform <ChevronDown className="w-[10px] h-[10px] opacity-80" aria-hidden="true" />
+
+        <Animate delay={140} direction="down" className="hidden lg:block">
+          <div className="h-[46px] p-1 bg-white/65 border border-white/80 rounded-[12px] backdrop-blur-[16px] flex items-center gap-1 shadow-[0_6px_20px_-10px_rgba(37,36,35,0.12)]">
+            <button
+              type="button"
+              className="h-[36px] px-4 rounded-[9px] text-[#252423] text-[13px] font-medium hover:bg-white/80 transition-colors"
+              onClick={() => window.location.assign('/office')}
+            >
+              登录
             </button>
-            {navItems.slice(1).map(item => <span key={item} className={`cursor-pointer ${navItemClass}`}>{item}</span>)}
+            <button
+              type="button"
+              className="h-[36px] px-4 bg-[#242323] hover:bg-[#383634] rounded-[9px] text-[#f7f5f2] text-[13px] font-semibold transition-colors"
+              onClick={() => window.location.assign('/office#overview')}
+            >
+              进入工作台
+            </button>
           </div>
         </Animate>
-        <Animate delay={200} direction="down" className="hidden lg:block">
-          <div className="h-[52px] p-[3px] bg-[rgba(0,0,0,0.35)] rounded-[13px] backdrop-blur-[17px] flex items-center gap-[5px]">
-            <button type="button" className="h-[46px] px-6 rounded-[11px] text-white text-[14px] font-[450] leading-[14px] hover:bg-white/5 transition-colors" onClick={() => window.location.assign('/office')}>
-              Login
-            </button>
-            <button type="button" className="h-[46px] px-6 bg-[#E9E9E9] rounded-[11px] text-[#0A0707] text-[14px] font-[450] leading-[14px] hover:bg-white transition-colors" onClick={() => window.location.assign('/office')}>
-              Book a demo
-            </button>
-          </div>
-        </Animate>
-        <Animate delay={100} direction="down" className="lg:hidden">
+
+        <Animate delay={80} direction="down" className="lg:hidden">
           <button
             type="button"
-            className="w-[44px] h-[44px] flex items-center justify-center rounded-[11px] bg-[rgba(10,7,7,0.35)] backdrop-blur-[17px] transition-colors hover:bg-white/10"
+            className="w-[42px] h-[42px] flex items-center justify-center rounded-[11px] bg-white/75 border border-white/90 backdrop-blur-[16px] text-[#252423]"
             onClick={() => setIsOpen(!isOpen)}
-            aria-label="Toggle menu"
+            aria-label="切换导航菜单"
             aria-expanded={isOpen}
             aria-controls="mobile-menu"
           >
-            <div className="relative w-5 h-5">
-              <Menu className={`w-5 h-5 text-white absolute inset-0 transition-all duration-300 ease-out ${isOpen ? 'opacity-0 rotate-90 scale-75' : 'opacity-100 rotate-0 scale-100'}`} aria-hidden="true" />
-              <X className={`w-5 h-5 text-white absolute inset-0 transition-all duration-300 ease-out ${isOpen ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 -rotate-90 scale-75'}`} aria-hidden="true" />
-            </div>
+            {isOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
           </button>
         </Animate>
       </nav>
+
       <div
         id="mobile-menu"
-        className={`lg:hidden fixed inset-0 z-40 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isOpen ? 'visible' : 'invisible'}`}
+        className={`lg:hidden fixed inset-0 z-40 transition-all duration-300 ${isOpen ? 'visible' : 'invisible'}`}
         aria-hidden={!isOpen}
       >
-        <div className={`absolute inset-0 bg-[#080A19]/90 backdrop-blur-[24px] transition-opacity duration-500 ${isOpen ? 'opacity-100' : 'opacity-0'}`} onClick={() => setIsOpen(false)} />
-        <div className={`absolute top-[76px] sm:top-[86px] left-4 right-4 sm:left-6 sm:right-6 max-h-[calc(100dvh-92px)] sm:max-h-[calc(100dvh-110px)] overflow-y-auto bg-[rgba(17,16,15,0.6)] backdrop-blur-[30px] rounded-[20px] border border-white/[0.06] p-6 sm:p-8 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] origin-top ${isOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-4 scale-[0.97]'}`}>
+        <div
+          className={`absolute inset-0 bg-[#252423]/25 backdrop-blur-[12px] transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
+          onClick={() => setIsOpen(false)}
+        />
+        <div
+          className={`absolute top-[74px] left-4 right-4 bg-[#fbf9f4]/95 backdrop-blur-[24px] rounded-[18px] border border-white/80 shadow-xl p-5 transition-all duration-300 origin-top ${isOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-3 scale-[0.98]'}`}
+        >
           <div className="flex flex-col gap-1">
-            {navItems.map((item, index) => (
-              <a
-                key={item}
-                href="#"
-                className={`flex items-center justify-between px-4 py-4 rounded-[12px] text-white/90 text-[18px] font-[450] hover:bg-white/[0.06] transition-all duration-300 ${isOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-3'}`}
-                style={{ transitionDelay: isOpen ? `${100 + index * 50}ms` : '0ms' }}
-                onClick={event => {
+            {NAV_LINKS.map(item => (
+              <button
+                key={item.label}
+                type="button"
+                className="text-left px-3.5 py-3 rounded-[10px] text-[#252423] text-[15px] font-medium hover:bg-black/[0.04]"
+                onClick={() => {
                   setIsOpen(false);
-                  if (index === 0) {
-                    event.preventDefault();
-                    window.location.assign('/office#overview');
-                  }
+                  window.location.assign(item.href);
                 }}
               >
-                {item}
-                {index === 0 && <ChevronDown className="w-4 h-4 opacity-50" aria-hidden="true" />}
-              </a>
+                {item.label}
+              </button>
             ))}
           </div>
-          <div className="h-px bg-white/10 my-5" />
-          <div className={`flex flex-col gap-3 transition-all duration-300 ${isOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`} style={{ transitionDelay: isOpen ? '350ms' : '0ms' }}>
-            <button type="button" className="w-full h-[50px] bg-[#E9E9E9] rounded-[12px] text-[#0A0707] text-[15px] font-[450] transition-colors hover:bg-white" onClick={() => window.location.assign('/office')}>
-              Book a demo
+          <div className="h-px bg-[#484239]/10 my-4" />
+          <div className="flex flex-col gap-2.5">
+            <button
+              type="button"
+              className="w-full h-[44px] bg-[#242323] rounded-[10px] text-[#f7f5f2] text-[14px] font-semibold"
+              onClick={() => window.location.assign('/office#overview')}
+            >
+              进入数字办公室
             </button>
-            <button type="button" className="w-full h-[50px] rounded-[12px] border border-white/30 text-white text-[15px] font-[450] transition-colors hover:bg-white/5" onClick={() => window.location.assign('/office')}>
-              Login
+            <button
+              type="button"
+              className="w-full h-[44px] rounded-[10px] border border-[#484239]/15 bg-white/80 text-[#252423] text-[14px] font-medium"
+              onClick={() => window.location.assign('/office')}
+            >
+              登录工作台
             </button>
           </div>
         </div>

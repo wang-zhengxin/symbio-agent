@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runtimeMcpConfig } from './agent-capabilities.js';
+import { effectiveAgentPermissions } from '../public/agent-permissions.js';
 
 export function redact(value) {
   return String(value ?? '')
@@ -53,7 +54,7 @@ export function runtimeInstructions(run, runtime = run.agent.runtime) {
       : run.kind === 'comment' ? '这是任务讨论中的回复。直接输出要发布的评论正文，不执行原任务，不修改文件。'
         : '在职责内执行任务。完成后汇报结果和验证情况。',
     run.kind === 'task' && runtime === 'codex' && '需要进行公司管理或交接时，使用当前提供的 office 工具。使用 office_task_discussion 可读取执行期间的最新评论。',
-    run.kind === 'task' && runtime === 'pi' && '如果需要在任务讨论中发消息，可在最终输出另起一行写 OFFICE_COMMENT {"text":"@同事姓名 消息正文"}。可带 replyToId 回复，或用 parent:true 发送到父任务。每次最多三条，另写正常交付正文。',
+    run.kind === 'task' && runtime === 'pi' && effectiveAgentPermissions(run.agent).comments && '如果需要在任务讨论中发消息，可在最终输出另起一行写 OFFICE_COMMENT {"text":"@同事姓名 消息正文"}。可带 replyToId 回复，或用 parent:true 发送到父任务。每次最多三条，另写正常交付正文。',
   ].filter(Boolean).join('\n');
 }
 

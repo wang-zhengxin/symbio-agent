@@ -19,6 +19,7 @@ export function collectorCommand(input, allowLanHttp, servesPackage) {
   const executable = `${runner} --yes --registry=https://registry.npmjs.org --package=${packageSource} -- ${collectorPackage.name}`;
   return {
     loopback,
+    login: `${executable} login ${quote(server)}${allowHttp ? ' --allow-http' : ''} --run`,
     launch(token) {
       const pipe = shell === 'powershell' ? quote(token) : `printf '%s\\n' ${quote(token)}`;
       return `${pipe} | ${executable} join ${quote(server)}${allowHttp ? ' --allow-http' : ''}`;

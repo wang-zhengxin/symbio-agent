@@ -1,3 +1,4 @@
+import { executionAdapterStatus, agentAuthorization, agentCanExecute } from './agent-permissions.js';
 import { officeOverview } from './overview.js';
 import { avatarFields } from './office-avatars.js';
 import { baseWorkstations, workstationLabel, officePresence, privateOfficeSeatIndex } from './office-presence.js';
@@ -101,12 +102,12 @@ export function createWorkspaceView(ui) {
     if (!rows.length) return empty('还没有项目。新建项目后，这里会显示任务进度。');
     return `<div class="symbio-scroll-table"><table class="symbio-table project-table">
       <thead><tr><th>项目名称</th><th>状态</th><th>进度</th><th>负责人</th><th>截止日期</th><th>工作区</th></tr></thead>
-      <tbody>${rows.map(project => `<tr><td>${link('project-edit', project.name, project.id)}<small>${escape(project.description || '项目')} · ${link('project-tasks', project.tasks + ' 项任务', project.id)}</small></td>
+      <tbody>${rows.map(project => `<tr><td>${link('project-edit', project.name, project.id)}<small><span class="project-desc" title="${escape(project.description || '项目')}">${escape(project.description || '项目')}</span> · ${link('project-tasks', project.tasks + ' 项任务', project.id)}</small></td>
         <td>${label(project.status, project.status === '需关注' ? 'warn' : project.status === '待开始' ? '' : 'green')}</td>
         <td><div class="symbio-progress">${progress(project.progress, project.name + '完成进度', project.status === '需关注' ? 'warn' : '')}
           <small>${project.progress}%</small></div></td>
         <td>${escape(project.owner || '—')}</td><td>${escape(monthDay(project.dueDate))}</td>
-        <td>${link('project-space', '公共工作区 →', project.id)}</td></tr>`).join('')}</tbody></table></div>`;
+        <td>${link('project-space', '工作区 →', project.id)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   function calendar(snapshot) {
@@ -172,7 +173,7 @@ export function createWorkspaceView(ui) {
       <div class="actions">${blockButton('task-fullscreen', '↗ 大屏模式')}${blockButton('task-edit', '＋ 添加任务')}</div></header>
       <div class="symbio-board-columns">${columns.map(([state, title]) => {
         const items = mainTasks.filter(task => task.status === state || (state === 'todo' && task.status === 'blocked'));
-        return `<section class="symbio-board-column"><header><strong>${state === 'review' ? '<span class="symbio-board-dot warn">●</span>' : '●'} ${escape(workflowName(state) ?? title)}</strong><span>${pad(items.length)}</span>
+        return `<section class="symbio-board-column"><header><strong>${state === 'review' ? '<span class="symbio-board-dot warn">●</span>' : '●'} ${escape(workflowName(state) ?? title)}</strong><span>${items.length}</span>
           ${link('task-edit', '＋')}</header><div>${items.map(task => `<button type="button" data-action="task-view" data-id="${escape(task.id)}" class="symbio-task">
             <strong>${escape(task.title)}</strong><small>${escape(assignedName(task))}</small><span>${label(name('projects', task.projectId))}
               <small>${escape(task.dueDate === now ? '今日截止' : monthDay(task.dueDate))}</small></span></button>`).join('') || empty('暂无任务')}</div></section>`;
@@ -183,7 +184,7 @@ export function createWorkspaceView(ui) {
         ['进行中项目', projects.filter(item => item.status === '进行中' || item.status === '需关注').length, projects.length + ' 个项目'],
         ['执行中任务', tasksRunning, tasksRunning + ' 项由 Agent 执行'],
         [periodText + '完成率', percent(periodTasks.filter(t => t.status === 'done').length, periodTasks.length) + '%', periodTasks.length + ' 项新任务'],
-        ['即将截止', pad(due.length), '未来 48 小时内', 'alert'],
+        ['即将截止', due.length, '未来 48 小时内', 'alert'],
       ]) + `<div class="symbio-project-grid"><div>${panel('项目进度', projectTable(projects), link('ws-projects', '所有项目 →'), 'symbio-project-progress')}${board}</div>
       <div>${calendar(snapshot)}${schedulePanel(snapshot)}</div></div>`, 'symbio-project');
   }
@@ -239,8 +240,8 @@ export function createWorkspaceView(ui) {
         ${progress(percent(work, assigned.length), '工作负载')}<div class="symbio-inline symbio-muted"><span>${work} 项进行中</span><span>已完成 ${completed} 项</span></div></div>
       <div class="symbio-detail-part partners"><div class="symbio-inline"><h3>协作 Agent</h3>${link('ws-agents', '管理绑定 →')}</div>
         ${partners.length ? partners.map(person => `<div class="symbio-inline"><div><strong>${escape(person.name)}</strong><small>${escape(person.title)}</small></div>${statusLabel(person.status)}</div>`).join('') : empty('暂无共同指派的 Agent。')}</div>
-      <div class="symbio-detail-part symbio-inline"><span class="symbio-muted">角色权限</span>${label(selected.type === 'human' ? '真人档案' : selected.runtime === 'observed' ? '仅采集' : selected.sandbox === 'workspace-write' ? '工作目录可写' : '只读执行')}</div>`,
-      link(action, '···', selected.id), 'symbio-person-detail');
+      <div class="symbio-detail-part symbio-inline"><span class="symbio-muted">执行适配</span>${label(selected.type === 'human' ? '真人档案' : executionAdapterStatus(selected).label)}</div>${selected.type === 'agent' ? `<div class="symbio-detail-part symbio-inline"><span class="symbio-muted">执行授权</span>${label(agentAuthorization(selected).execution ? '管理员已授权' : '管理员未授权')}</div>` : ''}`,
+      link(action, '编辑资料', selected.id) + (selected.type === 'agent' ? link('agent-permissions', '权限设置', selected.id) : ''), 'symbio-person-detail');
   }
 
   function people() {
@@ -264,7 +265,7 @@ export function createWorkspaceView(ui) {
         return `<tr${person.id === selected?.id ? ' class="selected"' : ''}><td>${link('ws-person', person.name, person.id)}
           <small>${escape(person.code + ' · ' + person.title)}</small></td><td>${label(person.type === 'human' ? '真人' : 'Agent', person.type === 'human' ? 'violet' : 'green')}</td>
           <td>${escape(name('teams', person.teamId))}</td><td>${statusLabel(person.status)}</td><td>${task ? link('task-view', task.title, task.id) : '—'}</td>
-          <td>${link(person.type === 'human' ? 'ws-human-edit' : 'agent-edit', '···', person.id)}</td></tr>`;
+          <td>${link(person.type === 'human' ? 'ws-human-edit' : 'agent-edit', '编辑', person.id)}${person.type === 'agent' ? link('agent-permissions', '权限设置', person.id) : ''}</td></tr>`;
       }).join('')}</tbody></table>${!rows.length ? empty('没有匹配的员工。') : ''}</div>
       <footer class="symbio-directory-footer"><span>显示 ${list.length ? (employee.page - 1) * 8 + 1 : 0}–${Math.min(employee.page * 8, list.length)} 项，共 ${list.length} 位员工</span>
         <div>${link('ws-employee-page','‹',String(employee.page - 1))}<strong>${employee.page} / ${pageCount}</strong>${link('ws-employee-page','›',String(employee.page + 1))}</div></footer>`,
@@ -312,13 +313,13 @@ export function createWorkspaceView(ui) {
       return `<article class="symbio-panel symbio-agent-card"><header><span class="symbio-agent-icon ${tint}">
         <img src="/office-assets/${tint === 'warn' ? 'agent-agent1' : 'agent-agent'}.svg" alt=""></span>
         <div><h2>${escape(agent.name)}</h2><p>${escape(agent.title)}</p></div>${statusLabel(currentStatus)}</header>
-        <div class="symbio-agent-model">${label(agent.model || ({demo:'演示运行器',codex:'Codex 默认',pi:'Pi 默认',observed:'仅采集'})[agent.runtime] || agent.runtime)}
+        <div class="symbio-agent-model">${label(agent.runtime === 'observed' ? (agent.provider ? agent.provider + ' · ' : '') + executionAdapterStatus(agent).label : agent.model || ({demo:'演示运行器',codex:'Codex 默认',pi:'Pi 默认'})[agent.runtime] || agent.runtime)}
           <span>团队 · ${escape(name('teams', agent.teamId))}</span></div>
-        <p class="symbio-agent-activity">${escape(task ? find('tasks', task.taskId)?.title || task.activity : review?.title || agent.scope || '暂无执行任务')}</p>
+        <p class="symbio-muted">适配：${escape(executionAdapterStatus(agent).label)} · 授权：${agentAuthorization(agent).execution ? agentCanExecute(agent) ? '已允许执行' : '已授权，待适配' : '未允许执行'}</p><p class="symbio-agent-activity">${escape(task ? find('tasks', task.taskId)?.title || task.activity : review?.title || agent.scope || '暂无执行任务')}</p>
         <div class="symbio-agent-stats"><div><strong>${runs.length ? percent(runs.filter(r => r.status === 'completed').length, runs.length) + '%' : '—'}</strong><small>成功率</small></div>
           <div><strong>${number(agentUsage)}</strong><small>今日 Token</small></div><div><strong>${current.filter(run => run.status !== 'queued').length} 项</strong><small>执行中任务</small></div></div>
-        <footer>${link('agent-edit', '查看配置 →', agent.id)}${review ? link('task-view', '处理验收', review.id) :
-          agent.runtime !== 'observed' ? link('ws-agent-pause', agent.paused ? '▷ 恢复派发' : 'Ⅱ 暂停', agent.id) : link('goto-discovery', '查看来源')}</footer></article>`;
+        <footer>${link('agent-edit', '编辑配置', agent.id)}${link('agent-permissions', '权限设置', agent.id)}${review ? link('task-view', '处理验收', review.id) :
+          agentCanExecute(agent) ? link('ws-agent-pause', agent.paused ? '▷ 恢复派发' : 'Ⅱ 暂停', agent.id) : agent.runtime === 'observed' ? link('goto-discovery', '查看来源') : ''}</footer></article>`;
     });
     if (agents.tab === 'approval') cards.push(...approval.filter(candidate => !agents.team || candidate.draft?.teamId === agents.team)
       .filter(candidate => !agents.q || (candidate.draft?.name || '').toLowerCase().includes(agents.q.toLowerCase()))
@@ -333,7 +334,7 @@ export function createWorkspaceView(ui) {
         all.filter(person => ['offline','paused'].includes(person.status)).length + ' 个离线或已暂停'],
         ['今日执行成功率', terminal.length ? percent(terminal.filter(run => run.status === 'completed').length, terminal.length) + '%' : '—', terminal.length + ' 项执行已结束'],
         ['今日 Token 消耗', number(usage), budget?.limit > 0 ? '预算使用率 ' + percent(budget.spent,budget.limit) + '%' : '预算未设置'],
-        ['待人工审批', pad(approval.length + [...reviews].filter(Boolean).length), '入职审批与任务验收', 'alert']]) +
+        ['待人工审批', approval.length + [...reviews].filter(Boolean).length, '入职审批与任务验收', 'alert']]) +
       `<div class="symbio-agent-controls">${tabs([['all','全部 Agent ' + all.length], ['running','运行中 ' + active.size],
         ['approval','待审批 ' + (approval.length + [...reviews].filter(Boolean).length)], ['paused','已暂停 ' + all.filter(item => item.paused).length]], agents.tab, 'ws-agent-tab')}
         ${filters(agents, 'agents', modelOptions)}</div><div class="symbio-agent-grid">${cards.join('') || empty('没有匹配的 Agent。')}</div>

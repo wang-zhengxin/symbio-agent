@@ -290,6 +290,7 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
         ${selected.taskId ? btn('task-view', '任务', selected.taskId) : ''}
         ${selected.sessionId ? btn('overview-conversations', '会话') : ''}
         ${selected.kind === 'system' ? '' : btn(selected.kind === 'agent' ? 'agent-edit' : 'ws-human-edit', '档案', selected.profileId)}
+        ${selected.kind === 'agent' ? btn('agent-permissions', '权限设置', selected.profileId) : ''}
         <button type="button" data-action="office-person" data-id="" aria-label="关闭角色详情">×</button></div>` : ''}
       <footer class="office-map-toolbar">
         <div class="office-legend" aria-label="状态图例">
@@ -343,7 +344,7 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
           {aside: num(model.queued) + ' 项排队', action: 'overview-details', id: 'tasks'})}
         ${kpi('今日完成', num(model.completed), '已通过人工验收',
           {aside: delta ? (delta > 0 ? '↑ ' : '↓ ') + num(Math.abs(delta)) + ' 项' : '较昨日持平', action: 'overview-details', id: 'completed'})}
-        ${kpi('待人工介入', String(model.reviewCount + model.blockedCount).padStart(2, '0'),
+        ${kpi('待人工介入', num(model.reviewCount + model.blockedCount),
           num(model.reviewCount) + ' 项确认  ·  ' + num(model.blockedCount) + ' 项阻塞',
           {aside: model.reviewCount + model.blockedCount ? '需要关注' : '暂无待办', alert: true, action: 'overview-details', id: 'attention'})}
       </section>` : ''}

@@ -1,4 +1,5 @@
 import { fail } from './input.js';
+import { agentToolAllowed } from '../public/agent-permissions.js';
 
 const text = {type: 'string'};
 const count = {type: 'integer'};
@@ -11,7 +12,9 @@ const spec = (name, description, properties = {}, required = []) => ({
 
 export function companyTools(store, office, run) {
   const tools = new Map();
-  const add = (definition, handler) => tools.set(definition.name, {definition, handler});
+  const add = (definition, handler) => {
+    if (agentToolAllowed(run.agent, definition.name)) tools.set(definition.name, {definition, handler});
+  };
   const readUsage = () => office.ledger().map(row => ({
     ...row, name: row.scope === 'company' ? '公司' : store.get(row.scope, row.id)?.name,
   }));
@@ -32,7 +35,8 @@ export function companyTools(store, office, run) {
       {text, replyToId:text, mentions:strings, parent:flag, emailMentions:flag}, ['text']), args => office.commentTask(run.taskId, args, run));
     if (run.agent.role === 'hr') {
       add(spec('office_candidates', '查询扫描发现且待人事处理的候选 Agent'),
-        () => store.list('candidate').filter(item => ['discovered', 'review'].includes(item.status) && item.present)
+        () => store.list('candidate').filter(item => (item.kind !== 'process' || item.status === 'review') &&
+          ['discovered', 'review'].includes(item.status) && item.present && store.get('machine', item.machineId)?.status !== 'revoked')
           .slice(0, 100).map(({id, provider, kind, machineId, status}) => ({id, provider, kind, machineId, status})));
       add(spec('office_review_candidate', '为扫描发现的 Agent 提交入职档案，等待工作台批准',
         {candidateId: text, name: text, personality: text, scope: text, teamId: text, skillIds: strings},

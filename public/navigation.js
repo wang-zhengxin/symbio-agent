@@ -1,7 +1,6 @@
 // Labels and destinations shared by the sidebar, breadcrumbs and settings.
 export const navigationGroups = [
   {name:'快捷入口', items:[
-    {title:'搜索', action:'ws-search', icon:'search'},
     {title:'新建任务', action:'task-edit', icon:'edit'},
     {title:'收件箱', page:'inbox', icon:'inbox', member:true},
     {title:'我的任务', page:'tasks', child:'mine', icon:'person', member:true},

@@ -5,6 +5,7 @@ import { openStore } from '../src/store.js';
 import { createOffice } from '../src/office.js';
 import { createDiscovery } from '../src/discovery.js';
 import { companyTools } from '../src/company-tools.js';
+import { discoveryGroups } from '../public/discovery-model.js';
 
 const sample = {
   hostname: 'worker-a', platform: 'linux', installed: ['codex'],
@@ -112,10 +113,127 @@ test('Only local Pi installations can gain text execution through onboarding', t
   const local = candidates.find(row => row.machineId === 'local' && row.kind === 'installation');
   const profile = {name: '复核员', personality: '严谨', scope: '校对', runtime: 'pi', sandbox: 'workspace-write'};
   for (const other of candidates.filter(row => row.id !== local.id)) {
-    assert.throws(() => office.stageCandidate(other.id, profile), {status: 400});
+    assert.throws(() => office.stageCandidate(other.id, profile), {status: other.kind === 'process' ? 409 : 400});
   }
   const draft = office.stageCandidate(local.id, profile);
   const worker = office.approveCandidate(local.id, draft.reviewVersion);
   assert.equal(worker.runtime, 'pi');
   assert.equal(worker.sandbox, 'read-only');
+});
+
+test('Many PIDs yield one onboarding candidate; process churn and ignored status do not refill HR', t => {
+  const {discovery, office, machine, store} = setup(t);
+  const processes = Array.from({length: 20}, (_, i) => ({provider: 'codex', pid: 100 + i, instance: `${100 + i}-0123456789abcdef`}));
+  discovery.receive(machine.id, {...sample, processes});
+  let snapshot = discovery.snapshot();
+  const candidate = snapshot.candidates.find(row => row.kind === 'installation');
+  assert.equal(snapshot.candidates.filter(row => row.status === 'discovered').length, 1);
+  const groups = discoveryGroups(snapshot.candidates, snapshot.machines);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].processes.length, 20);
+  assert.throws(() => office.stageCandidate(groups[0].processes[0].id, {name: 'PID 员工', personality: '严谨', scope: '测试'}), {status: 409});
+  const hr = office.saveAgent({name: '人事', role: 'hr'});
+  const task = office.saveTask({title: '候选查询', assigneeId: hr.id});
+  const run = office.startRun(office.enqueueTask(task.id).id);
+  const response = companyTools(store, office, run).call({callId: 'grouped-candidates', tool: 'office_candidates', arguments: {}});
+  assert.equal(response.success, true);
+  assert.doesNotMatch(JSON.stringify(response), /"kind":"process"/);
+  office.dismissCandidate(candidate.id);
+  discovery.receive(machine.id, {...sample, processes: [{provider: 'codex', pid: 900, instance: '900-fedcba9876543210'}]});
+  snapshot = discovery.snapshot();
+  const refreshed = discoveryGroups(snapshot.candidates, snapshot.machines);
+  assert.equal(refreshed.length, 1);
+  assert.equal(refreshed[0].candidate.id, candidate.id);
+  assert.equal(refreshed[0].candidate.status, 'dismissed');
+  assert.deepEqual(refreshed[0].processes.map(row => row.pid), [900]);
+  assert.equal(snapshot.candidates.filter(row => row.status === 'discovered').length, 0);
+  assert.equal(discovery.clientStatus(machine.id).runtimes.length, 1);
+});
+
+test('Process-only runtimes stay stable when installed later and do not show stale instances as live', t => {
+  const {discovery, machine} = setup(t);
+  discovery.receive(machine.id, {...sample, installed: []});
+  const candidate = discovery.snapshot().candidates.find(row => row.kind !== 'process');
+  assert.equal(candidate.kind, 'runtime');
+  discovery.receive(machine.id, {...sample, processScan: 'unavailable', processes: [], installed: []});
+  let snapshot = discovery.snapshot();
+  assert.equal(discoveryGroups(snapshot.candidates, snapshot.machines)[0].processState, 'unknown');
+  assert.equal(snapshot.candidates.find(row => row.id === candidate.id).present, true);
+  discovery.receive(machine.id, sample);
+  snapshot = discovery.snapshot();
+  assert.equal(snapshot.candidates.find(row => row.kind === 'installation').id, candidate.id);
+  discovery.receive('local', sample);
+  snapshot = discovery.snapshot();
+  assert.equal(discoveryGroups(snapshot.candidates, snapshot.machines).length, 2);
+  discovery.revoke(machine.id);
+  snapshot = discovery.snapshot();
+  assert.equal(discoveryGroups(snapshot.candidates, snapshot.machines).length, 1);
+  discovery.receive('local', {...sample, installed: [], processes: []});
+  snapshot = discovery.snapshot();
+  assert.equal(discoveryGroups(snapshot.candidates, snapshot.machines).length, 0);
+});
+
+test('Legacy normalization is idempotent and preserves drafts, employee links and process history', t => {
+  const store = openStore(':memory:');
+  t.after(() => store.close());
+  store.tx(() => {
+    store.put('machine', {id: 'local', name: '本机', status: 'online', processScan: 'ok'});
+    for (const [id, status] of [['raw', 'discovered'], ['draft', 'review'], ['hired', 'approved']]) {
+      store.put('candidate', {id, machineId: 'local', kind: 'process', provider: 'codex', status, present: true,
+        key: 'process:codex:' + id, pid: 1, firstSeenAt: '2026-11-21T00:00:00.000Z', lastSeenAt: '2026-11-21T00:00:00.000Z',
+        ...(id === 'draft' ? {draft: {name: '保留档案'}, reviewVersion: 2} : {}), ...(id === 'hired' ? {agentId: 'employee'} : {})});
+    }
+    store.put('agent', {id: 'employee', name: '已有员工', candidateId: 'hired'});
+  });
+  const discovery = createDiscovery(store);
+  assert.equal(store.get('candidate', 'raw').status, 'observed');
+  assert.equal(store.get('candidate', 'draft').reviewVersion, 2);
+  assert.equal(store.get('candidate', 'hired').agentId, 'employee');
+  assert.equal(store.get('agent', 'employee').candidateId, 'hired');
+  const before = discovery.snapshot();
+  createDiscovery(store);
+  assert.deepEqual(discovery.snapshot(), before);
+  const groups = discoveryGroups(before.candidates, before.machines);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].processes.length, 3);
+  assert.equal(groups[0].legacyReviews[0].draft.name, '保留档案');
+});
+
+test('Desktop agents recognize main executables and relocated bundles without treating helpers or prompts as agents', () => {
+  const rows = [
+    {pid: 1, ppid: 0, started: 'one', command: '/Applications/Antigravity.app/Contents/MacOS/Antigravity', name: '/Applications/Antigravity.app/Contents/MacOS/Antigravity'},
+    {pid: 2, ppid: 1, started: 'two', command: '/Applications/Antigravity.app/Contents/Frameworks/Antigravity Helper (Renderer).app/Contents/MacOS/Antigravity Helper (Renderer)'},
+    {pid: 3, ppid: 1, started: 'three', command: '/Applications/Antigravity.app/Contents/Resources/bin/language_server'},
+    {pid: 4, ppid: 0, started: 'four', command: '/Volumes/External Disk/WorkBuddy.app/Contents/MacOS/launcher', name: '/Volumes/External Disk/WorkBuddy.app/Contents/MacOS/launcher'},
+    {pid: 5, ppid: 0, started: 'five', command: '"C:\\Program Files\\WorkBuddy\\WorkBuddy.exe" --secret private', name: 'WorkBuddy.exe'},
+    {pid: 6, ppid: 5, started: 'six', command: 'WorkBuddy.exe --type=renderer', name: 'WorkBuddy.exe'},
+    {pid: 7, ppid: 0, started: 'seven', command: 'bash -c "workbuddy --private"'},
+    {pid: 8, ppid: 0, started: 'eight', command: 'node script.js --prompt antigravity'},
+    {pid: 9, ppid: 0, started: 'nine', command: 'agy'},
+    {pid: 10, ppid: 3, started: 'ten', command: '/Applications/Antigravity.app/Contents/Frameworks/Antigravity Helper.app/Contents/MacOS/Antigravity Helper', name: '/Applications/Antigravity.app/Contents/Frameworks/Antigravity Helper.app/Contents/MacOS/Antigravity Helper'},
+    {pid: 11, ppid: 999, started: 'eleven', command: 'WorkBuddy.exe --type=utility', name: 'WorkBuddy.exe'},
+  ];
+  assert.deepEqual(discoverProcesses(rows).map(({provider, pid}) => [provider, pid]),
+    [['antigravity', 1], ['workbuddy', 4], ['workbuddy', 5], ['antigravity', 9]]);
+  assert.doesNotMatch(JSON.stringify(discoverProcesses(rows)), /secret|private|External Disk/);
+});
+
+test('WorkBuddy and Antigravity enroll as observed employees only and group their running instances', t => {
+  const {discovery, office} = setup(t);
+  discovery.receive('local', {...sample, installed: ['workbuddy', 'antigravity'], processes: [
+    {provider: 'antigravity', pid: 80, instance: '80-0123456789abcdef'},
+    {provider: 'antigravity', pid: 81, instance: '81-0123456789abcdef'},
+  ]});
+  const snapshot = discovery.snapshot();
+  const groups = discoveryGroups(snapshot.candidates, snapshot.machines);
+  assert.equal(groups.length, 2);
+  assert.equal(groups.find(row => row.provider === 'antigravity').processes.length, 2);
+  for (const candidate of snapshot.candidates.filter(row => row.kind === 'installation')) {
+    const profile = {name: candidate.provider, personality: '细致', scope: '采集观察'};
+    assert.throws(() => office.stageCandidate(candidate.id, {...profile, runtime: 'codex'}), {status: 400});
+    const draft = office.stageCandidate(candidate.id, {...profile, runtime: 'observed'});
+    const agent = office.approveCandidate(candidate.id, draft.reviewVersion);
+    assert.equal(agent.runtime, 'observed');
+    assert.equal(agent.sandbox, 'read-only');
+  }
 });

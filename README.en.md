@@ -107,7 +107,7 @@ Remote discoveries and already running processes are available in observation mo
 
 ## Collect from another machine
 
-The collector is available on public npm as `symbio-agent-collector@0.1.0`. Install Node.js 22.13 or newer on the target machine. [npm package](https://www.npmjs.com/package/symbio-agent-collector/v/0.1.0)
+The client version is `symbio-agent-collector@0.2.0` and requires Node.js 22.13+. Generated npm commands use the public registry by default. Set `OFFICE_COLLECTOR_PACKAGE_FILE` to serve a matching archive directly from the workspace for private deployments or versions not yet published. [CLI reference](collector/README.md)
 
 1. Make the collector endpoint reachable from the target machine. With the default loopback listener, open an SSH tunnel on the target machine and keep that terminal running. Replace `user@office-host` with the SSH username and address of the host running Symbio.
 
@@ -115,12 +115,16 @@ The collector is available on public npm as `symbio-agent-collector@0.1.0`. Inst
    ssh -N -L 4318:127.0.0.1:4318 user@office-host
    ```
 
-2. In the workspace, open **发现与入职 → 配对新机器** (Discovery and Onboarding → Pair New Machine). Enter the machine name and the receiver address as seen from the target machine, then select **macOS / Linux** or **Windows PowerShell**. For the tunnel above, enter `http://127.0.0.1:4318`.
-3. Select **生成启动命令** (Generate Launch Command), copy the **首次启动** (First Launch) command, and run it in a second terminal on the target machine. The command includes a pairing key unique to that machine and uses `npx` to download the pinned version. The collector pairs, sends its first report, and keeps running. Look for the machine marked online under **采集机器** (Collector Machines).
+2. In the workspace, open **发现与入职 → 配对新机器** (Discovery and Onboarding → Pair New Machine). Enter the machine name and the receiver address as seen from the target machine, then select the shell and task access scope: collection only, all projects read-only, or a single project read-only. For the tunnel above, enter `http://127.0.0.1:4318`.
+3. Select **生成配对码** (Generate Pairing Code). Run the **首次启动** (First Launch) npm command on the new machine and enter the code when prompted. Codes expire after 10 minutes and work once; commands do not embed a long-lived credential. After login, the client sends its first report and continues collecting. Confirm the machine is online under **采集机器** (Collector Machines). Discovered agents still require HR approval.
 
 Pairing is saved to `~/.agent-office/collector.json`. To resume collection, run the generated **配对后重新启动** (Restart After Pairing) command on the same machine under the same system account. You can revoke a machine's pairing from the workspace. [Remote deployment and troubleshooting in Chinese](docs/DEPLOYMENT.md#5-接入远程采集机器)
 
+After installing the matching client, use `config show`, `config set interval 30`, `login`, `status --json`, `tasks list --status in_progress`, `tasks show AG-12 --json`, `agents list` and `logout`. Without a global installation, append these commands to the generated `npx … -- symbio-agent-collector` prefix. Configuration supports `server`, `interval` (5–3600 seconds) and `allowHttp`; changing the server clears login. Task lists omit subtasks, while task details include them. Task access follows the pairing scope. Logout clears local credentials; server-side revocation invalidates other copies. Legacy `join` and `install` remain supported.
+
 For direct HTTPS access, set `OFFICE_COLLECTOR_HOST` on the Symbio host to its LAN IP or `0.0.0.0`, configure a trusted certificate and key with `OFFICE_COLLECTOR_TLS_CERT` and `OFFICE_COLLECTOR_TLS_KEY`, and enter the reachable HTTPS URL when pairing. Set `OFFICE_COLLECTOR_PUBLIC_URL` to prefill that URL. For HTTP testing on a trusted LAN, set `OFFICE_COLLECTOR_ALLOW_HTTP=1` so the generated command includes `--allow-http`.
+
+**WorkBuddy and Antigravity** installation and main-process discovery is supported. macOS system/user Applications folders are checked; `OFFICE_WORKBUDDY_BIN` and `OFFICE_ANTIGRAVITY_BIN` support custom executable locations. HR approval enrolls observation-only staff; task dispatch, internal execution telemetry and token usage require dedicated adapters. Upgrade remote collectors together with the server.
 
 The collector reads the process table on macOS and Linux and uses PowerShell CIM on Windows. The account and environment running it determine which processes are visible. The end-to-end collection flow has been verified on macOS.
 

@@ -110,7 +110,7 @@ OFFICE_SMTP_PASS="你的 SMTP 授权码"
 
 ## 从另一台机器采集
 
-采集器已发布到 npm，当前版本为 `symbio-agent-collector@0.1.0`。目标机器安装 Node.js 22.13 或更高版本后，可以直接运行后台生成的配对命令。 [npm 包](https://www.npmjs.com/package/symbio-agent-collector/v/0.1.0)
+客户端版本为 `symbio-agent-collector@0.2.0`，需要 Node.js 22.13 或更高版本。后台生成匹配版本的 npm 命令：默认从公共 npm 仓库下载；配置 `OFFICE_COLLECTOR_PACKAGE_FILE` 后从本工作台下载归档，适用于新版本尚未发布或私有部署。 [客户端命令说明](collector/README.md)
 
 1. 让目标机器能访问采集端。若采集端使用默认的本机监听，在目标机器先建立 SSH 隧道，并保持该终端开启。把 `user@office-host` 换成工作台主机的 SSH 用户名和地址。
 
@@ -118,12 +118,29 @@ OFFICE_SMTP_PASS="你的 SMTP 授权码"
    ssh -N -L 4318:127.0.0.1:4318 user@office-host
    ```
 
-2. 在工作台「发现与入职 → 配对新机器」填写机器名称和接收地址，选择「macOS / Linux」或「Windows PowerShell」。使用上述 SSH 隧道时，填写 `http://127.0.0.1:4318`。
-3. 点击「生成启动命令」，复制「首次启动」，在目标机器的另一个终端执行。命令包含这台机器专用的配对密钥，并通过 `npx` 下载指定版本。完成配对后，采集器会立即上报并持续运行。在「采集机器」看到该机器显示「在线」即接入成功。
+2. 在工作台「发现与入职 → 配对新机器」填写机器名称和接收地址，选择终端类型和任务读取范围（仅采集 / 所有项目只读 / 指定项目只读）。使用上述 SSH 隧道时，填写 `http://127.0.0.1:4318`。
+3. 点击「生成配对码」，在新电脑执行「首次启动」的 npm 命令，再按终端提示输入配对码。配对码 10 分钟有效、仅可使用一次；命令不含长期凭据。登录成功后立即上报并持续采集，在「采集机器」确认在线。发现的 Agent 仍需经过人事审批才能入职。
 
 采集器将配对保存在 `~/.agent-office/collector.json`。在同一机器、同一系统账号下，使用后台的「配对后重新启动」命令即可恢复采集。每台机器独立配对，可在工作台撤销。 [远程采集部署与排障](docs/DEPLOYMENT.md#5-接入远程采集机器)
 
+安装匹配版本的客户端后，可使用以下常规命令（未全局安装时，把命令追加到后台生成的 `npx … -- symbio-agent-collector` 前缀后）：
+
+```sh
+symbio-agent-collector config show
+symbio-agent-collector config set interval 30
+symbio-agent-collector login https://office.example:4318
+symbio-agent-collector status --json
+symbio-agent-collector tasks list --status in_progress --limit 20
+symbio-agent-collector tasks show AG-12 --json
+symbio-agent-collector agents list
+symbio-agent-collector logout
+```
+
+配置支持 `server`、`interval`（5–3600 秒）和 `allowHttp`。修改接收地址会清除旧登录，配置展示会隐藏凭据。任务列表只展示主任务，详情包含子任务；任务读取受配对时的项目授权限制。`logout` 清除本地登录，后台撤销才会使凭据的其他副本失效。旧版 `join` / `install` 仍兼容。
+
 直接接入可在工作台主机把 `OFFICE_COLLECTOR_HOST` 设为局域网 IP 或 `0.0.0.0`，用 `OFFICE_COLLECTOR_TLS_CERT` 和 `OFFICE_COLLECTOR_TLS_KEY` 指定可信证书与密钥，再在配对时填写 `https://主机名:4318`。可通过 `OFFICE_COLLECTOR_PUBLIC_URL` 预填可达地址。可信局域网的 HTTP 联调需要工作台设置 `OFFICE_COLLECTOR_ALLOW_HTTP=1`，后台会为生成的命令添加 `--allow-http`。
+
+已支持发现 **WorkBuddy、Antigravity** 的安装和主进程，并按机器与运行器合并展示。macOS 同时检查系统及用户 Applications 目录；自定义路径可用 `OFFICE_WORKBUDDY_BIN`、`OFFICE_ANTIGRAVITY_BIN` 指定。两者经人事审批后以“仅采集”员工加入，暂不支持平台派发任务或读取其内部执行过程、Token 消耗。远程采集需同步更新客户端。
 
 客户端在 macOS、Linux 使用进程表，Windows 使用 PowerShell CIM。运行采集的账号和环境决定可见进程范围。macOS 已做端到端验证。
 

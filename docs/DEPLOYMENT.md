@@ -171,7 +171,7 @@ journalctl --user -u symbio-office.service -n 50 --no-pager
 
 ## 5. 接入远程采集机器
 
-1. 在目标机器安装 Node.js 22.13 或更高版本。后台默认使用 npm 公共仓库的 `symbio-agent-collector@0.1.0`。 [npm 发布页](https://www.npmjs.com/package/symbio-agent-collector/v/0.1.0)
+1. 在目标机器安装 Node.js 22.13 或更高版本。当前客户端为 `symbio-agent-collector@0.2.0`，需与支持配对码的新服务端一起升级。确认对应版本已发布至 npm；未发布或私有部署时，先按下方步骤配置本机归档源。
 2. 默认情况下，采集端只在工作台主机本机监听。请在目标机器启动 SSH 转发，将 `deploy@office-host` 换成工作台主机的 SSH 用户名和地址。需要同时访问管理页时，可加入 `-L 4317:127.0.0.1:4317`。
 
    ```sh
@@ -179,19 +179,60 @@ journalctl --user -u symbio-office.service -n 50 --no-pager
      -L 4318:127.0.0.1:4318 deploy@office-host
    ```
 
-3. 在「发现与入职 → 配对新机器」填写机器名称、目标机器可访问的接收地址，并选择「macOS / Linux」或「Windows PowerShell」。使用上述 SSH 转发时填写 `http://127.0.0.1:4318`。若采集端已配置可信 TLS 证书且目标机器可直连，填写 `https://采集主机名:4318`。
+3. 在「发现与入职 → 配对新机器」填写机器名称、目标机器可访问的接收地址，选择终端和任务读取范围（默认仅采集，也可授权所有项目或指定项目只读）。使用上述 SSH 转发时填写 `http://127.0.0.1:4318`。若采集端已配置可信 TLS 证书且目标机器可直连，填写 `https://采集主机名:4318`。
 
-4. 点击「生成启动命令」，复制「首次启动」，在目标机器另一个终端以运行 Agent 的系统账号执行。首次启动命令含有机器专用的配对密钥，请仅交给该机器的操作者。看到终端提示「机器已上线，持续采集中」后，在后台「采集机器」核对在线状态、安装项和进程。远程候选经人事流程批准后作为「仅采集」员工。
+4. 点击「生成配对码」，在新电脑以运行 Agent 的系统账号执行「首次启动」npm 命令，然后交互输入配对码。码在 10 分钟后过期，且只能交换一次；数据库仅保存其哈希。登录后自动首次上报并持续采集，在后台核对在线状态。远程候选经人事流程批准后作为「仅采集」员工。
 
 配对保存在 `~/.agent-office/collector.json`，也可用 `OFFICE_COLLECTOR_CONFIG` 指定路径。需要常驻时，将后台的「配对后重新启动」命令交给目标机服务管理器，以原系统账号运行。使用 SSH 转发时也需要保持隧道运行。
 
 已配对的 macOS 或 Linux 机器可以执行一次上报来检查连接。Windows PowerShell 中将 `npx` 换成 `npx.cmd`。
 
 ```sh
-npx --yes --registry=https://registry.npmjs.org --package=symbio-agent-collector@0.1.0 -- symbio-agent-collector run --once
+npx --yes --registry=https://registry.npmjs.org --package=symbio-agent-collector@0.2.0 -- symbio-agent-collector run --once
 ```
 
-凭据失效时，在工作台撤销旧配对，移走旧配置，再生成新的首次启动命令。目标机器无法访问 npm 时，可在「采集机器」下载独立脚本，使用 `node office-collector.mjs install <接收地址>` 完成配对，再执行 `node office-collector.mjs run`。
+凭据失效时，在后台撤销旧配对，客户端执行 `logout`，再生成配对码并 `login`。目标机器无法访问 npm 时，在「采集机器」下载独立脚本，用 `node office-collector.mjs login <接收地址> --run` 输入配对码。旧版 `join` / `install` 密钥方式保持兼容。
+
+### 使用工作台提供 npm 归档
+
+在工作台项目根目录打包，再配置环境变量并重启服务。归档仅包含公开客户端代码，不包含配对码或凭据。npm 命令会使用目标电脑可达的采集地址下载归档。
+
+```sh
+mkdir -p data/collector-packages
+npm pack ./collector --pack-destination ./data/collector-packages
+# 在部署环境中配置（本机运行可写入 .env）：
+# OFFICE_COLLECTOR_PACKAGE_FILE=/absolute/path/data/collector-packages/symbio-agent-collector-0.2.0.tgz
+```
+
+更新客户端代码后重新打包并重启服务，保证归档版本与 `collector/package.json` 一致。从公共 npm 使用时，确认该版本已发布，再移除该变量。归档模式应使用后台生成的命令，在「配对后重新启动」命令后加 `--once` 检查连接。
+
+### CLI 配置与查询
+
+全局安装客户端（`npm install -g <对应版本或归档路径>`）后，可直接执行以下命令；也可复用后台生成的 `npx … -- symbio-agent-collector` 前缀。Windows PowerShell 使用 `npx.cmd`。
+
+```sh
+symbio-agent-collector config path
+symbio-agent-collector config show
+symbio-agent-collector config get server
+symbio-agent-collector config set interval 30
+symbio-agent-collector config set server https://office.example:4318
+symbio-agent-collector login
+symbio-agent-collector whoami --json
+symbio-agent-collector tasks list --status in_progress --limit 20 --offset 0
+symbio-agent-collector tasks list --project <项目ID> --json
+symbio-agent-collector tasks show AG-12 --json
+symbio-agent-collector agents list --json
+symbio-agent-collector logout
+```
+
+- `config show` 不显示凭据。修改 `server` 会清除旧登录；`logout` 保留地址和偏好，后台「撤销配对」才会使凭据的所有副本失效。
+- `interval` 为 5–3600 秒，默认 10 秒；服务端按上报间隔判断离线，持续采集每个周期重读配置。
+- 查询只返回授权范围中的任务摘要、描述、验收标准和子任务。主列表不混入子任务；不提供执行日志、提示词、共享文件或任务写操作。
+- 配对码兑换接口每来源地址每分钟最多 10 次，全局每分钟最多 300 次。任务查询要求机器凭据，撤销后立即拒绝。
+- 配对码过期、已使用或丢失时，撤销旧机器并重新生成。首次扫描失败但登录已保存时，修复网络后执行 `run --once`。
+- 客户端配置写入时使用锁，异常退出遗留锁时，确认相关命令已经停止再删除提示中的 `.lock` 文件。
+
+完整命令参考：[Collector README](../collector/README.md)。
 
 ## 6. 备份、升级与回滚
 

@@ -8,6 +8,8 @@ import { createTaskDiscussion } from './task-discussion.js';
 import { avatarIds } from '../public/office-avatars.js';
 import { assignWorkstation } from './workstations.js';
 import { mcpFields } from './agent-capabilities.js';
+import { agentPermissionDefinitions, effectiveAgentPermissions, agentAuthorization, agentCanExecute } from '../public/agent-permissions.js';
+import { candidateRuntimes } from '../public/discovery-model.js';
 
 const terminal = ['completed', 'failed', 'cancelled', 'interrupted'];
 const maxTokens = 1_000_000_000_000;
@@ -64,14 +66,30 @@ export function createOffice(store, settings = createSettings(store), space) {
     for (const id of skillIds) requireRecord('skill', id, '技能');
     const role = choice(input.role ?? 'worker', ['worker', 'lead', 'hr', 'finance'], '岗位');
     const runtime = choice(input.runtime ?? runtimes[0], runtimes, '运行器');
-    const mcpServerIds = modelRuntimes.includes(runtime)
-      ? ids(input.mcpServerIds ?? previous?.mcpServerIds ?? [], 'MCP 服务') : [];
-    for (const id of mcpServerIds) requireRecord('mcpServer', id, 'MCP 服务');
-    const sandbox = choice(input.sandbox ?? 'read-only', ['read-only', 'workspace-write'], '文件权限');
+    const requested = input.authorization;
+    if (requested !== undefined && (!requested || typeof requested !== 'object' || Array.isArray(requested) ||
+        Object.keys(requested).some(key => !['execution','sandbox','mcpServerIds','tools'].includes(key)) ||
+        (requested.execution !== undefined && typeof requested.execution !== 'boolean'))) fail('管理员授权配置无效');
+    for (const tools of [input.permissions, requested?.tools]) {
+      if (tools !== undefined && (!tools || typeof tools !== 'object' || Array.isArray(tools) ||
+          Object.entries(tools).some(([key, value]) => !agentPermissionDefinitions.some(item => item.key === key) || typeof value !== 'boolean'))) fail('权限配置无效');
+    }
+    const prior = agentAuthorization(previous ?? {role, runtime});
+    // Effective fields returned by the API must not overwrite saved grants.
+    // Legacy clients without `authorization` can still update those fields.
+    const legacy = requested === undefined ? input : {};
+    const authorization = {execution:requested?.execution ?? prior.execution,
+      sandbox:choice(requested?.sandbox ?? legacy.sandbox ?? prior.sandbox, ['read-only','workspace-write'], '文件授权'),
+      mcpServerIds:ids(requested?.mcpServerIds ?? legacy.mcpServerIds ?? prior.mcpServerIds, 'MCP 服务'),
+      tools:{...prior.tools, ...legacy.permissions, ...requested?.tools}};
+    for (const id of authorization.mcpServerIds) requireRecord('mcpServer', id, 'MCP 服务');
+    const permissions = effectiveAgentPermissions({role, runtime, authorization});
+    const mcpServerIds = authorization.execution && modelRuntimes.includes(runtime) ? authorization.mcpServerIds : [];
+    const sandbox = authorization.execution ? authorization.sandbox : 'read-only';
     const model = runtime === 'observed' ? '' : note(input.model, '模型', 100);
     if (runtime === 'pi' && model.startsWith('-')) fail('Pi 模型名称不能以短横线开头');
     return {
-      name: field(input.name, '姓名'), role,
+      name: field(input.name, '姓名'), role, permissions, authorization,
       personality: note(input.personality, '人格'),
       scope: note(input.scope, '职责范围'),
       teamId, skillIds, mcpServerIds, runtime, avatarId: choice(input.avatarId ?? previous?.avatarId ?? 'auto', avatarIds, '人物形象'),
@@ -93,8 +111,23 @@ export function createOffice(store, settings = createSettings(store), space) {
 
   function saveAgent(input, actorRun) {
     const before = input.id ? requireRecord('agent', input.id, '员工') : null;
+    if (input.expectedVersion !== undefined && input.expectedVersion !== before?.version) fail('员工配置已更新，请重新打开权限设置', 409);
     if (input.candidateId) fail('扫描候选需要通过人事入职流程', 409);
-    const profile = agentProfile(input, before?.candidateId ? [before.runtime] : [...modelRuntimes, 'demo'], before);
+    const runnerId = input.runnerCandidateId === undefined ? before?.runnerCandidateId : input.runnerCandidateId;
+    let source;
+    if (runnerId) {
+      source = requireRecord('candidate', runnerId, 'Agent 来源');
+      const machine = requireRecord('machine', source.machineId, '采集机器');
+      if (source.kind === 'process' || machine.status === 'revoked' ||
+          (!source.present && runnerId !== before?.runnerCandidateId)) fail('请选择可用的运行器来源', 409);
+      if (!before && !modelRuntimes.includes(candidateRuntimes(source).at(-1))) fail('该来源需要先提交人事入职档案', 409);
+    }
+    const allowed = source ? candidateRuntimes(source) : before?.candidateId ? [before.runtime] : [...modelRuntimes, 'demo'];
+    const profile = agentProfile(input, allowed, before);
+    if ((profile.runtime !== before?.runtime || runnerId !== before?.runnerCandidateId) && before &&
+        list('run').some(run => run.agentId === before.id && active.includes(run.status))) fail('员工仍有排队或执行中的任务，请结束后切换 Agent', 409);
+    Object.assign(profile, {runnerCandidateId: runnerId || undefined,
+      provider: source?.provider ?? (profile.runtime === 'observed' ? get('candidate', before?.candidateId)?.provider : profile.runtime)});
     if (before?.candidateId) {
       field(profile.personality, '人格', 8000);
       field(profile.scope, '职责范围', 8000);
@@ -102,14 +135,10 @@ export function createOffice(store, settings = createSettings(store), space) {
     return tx(() => recordAgent(profile, before, actorRun));
   }
 
-  function candidateRuntimes(candidate) {
-    return candidate.machineId === 'local' && candidate.kind === 'installation' && modelRuntimes.includes(candidate.provider)
-      ? ['observed', candidate.provider] : ['observed'];
-  }
-
   function stageCandidate(id, input, actorRun) {
     return tx(() => {
       const candidate = requireRecord('candidate', id, '候选 Agent');
+      if (candidate.kind === 'process' && candidate.status !== 'review') fail('进程仅用于运行诊断，请选择对应运行器办理入职', 409);
       if (!['discovered', 'review'].includes(candidate.status)) fail('候选已结束人事流程', 409);
       const profile = agentProfile(input, candidateRuntimes(candidate), candidate.draft);
       field(profile.personality, '人格', 8000);
@@ -129,6 +158,7 @@ export function createOffice(store, settings = createSettings(store), space) {
       const machine = requireRecord('machine', candidate.machineId, '采集机器');
       if (machine.status === 'revoked') fail('采集机器已撤销', 409);
       const profile = agentProfile(candidate.draft, candidateRuntimes(candidate));
+      Object.assign(profile, {runnerCandidateId: candidate.id, provider: candidate.provider});
       const agent = recordAgent(profile, null, null, candidate.id);
       put('candidate', {...candidate, status: 'approved', agentId: agent.id, approvedAt: time()});
       event('candidate.approved', {candidateId: id, machineId: machine.id}, {agentId: agent.id});
@@ -149,7 +179,8 @@ export function createOffice(store, settings = createSettings(store), space) {
 
   function assignableAgent(id, label) {
     const agent = requireRecord('agent', id, label);
-    if (agent.runtime === 'observed') fail('仅采集的员工不能参与平台任务或会议执行', 409);
+    if (agent.runtime === 'observed') fail('该来源尚未接入执行适配器，授权不能代替适配能力', 409);
+    if (!agentCanExecute(agent)) fail('管理员尚未允许该员工执行平台任务', 409);
     return agent;
   }
 
@@ -410,7 +441,7 @@ export function createOffice(store, settings = createSettings(store), space) {
     for (const task of list('task')) {
       if (!task.scheduledAt || task.scheduledAt > now || task.scheduleStartedAt || task.status !== 'todo') continue;
       const agent = get('agent', task.assigneeId);
-      if (!agent || agent.paused || agent.runtime === 'observed' ||
+      if (!agent || agent.paused || !agentCanExecute(agent) ||
           task.dependencyIds.some(id => get('task', id)?.status !== 'done')) continue;
       try {
         enqueueTask(task.id);

@@ -16,8 +16,9 @@ import { createProjectSpace, maxSpaceFileBytes } from './project-space.js';
 import { createAccounts, sessionCookie } from './accounts.js';
 import { createMailer } from './mailer.js';
 import { createMentionEmailDelivery } from './mention-email.js';
-import { scanAgents } from '../collector/office-collector.mjs';
+import { scanAgents, resolveProviderExecutable } from '../collector/office-collector.mjs';
 import { collectorCommand, collectorPackageSpec } from './collector-command.js';
+import { createCollectorApi } from './collector-api.js';
 import { createSkillMarketplace, skillSources } from './skill-marketplace.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -75,8 +76,9 @@ function scanLocal() {
   }
   return scanPending;
 }
+const [codexExecutable, piExecutable] = await Promise.all(['codex', 'pi'].map(provider => resolveProviderExecutable(provider)));
 const scheduler = createScheduler({store, office, space, data, configuration: settings.runtime,
-  executable: process.env.OFFICE_CODEX_BIN || 'codex', piExecutable: process.env.OFFICE_PI_BIN || 'pi',
+  executable: codexExecutable || process.env.OFFICE_CODEX_BIN || 'codex', piExecutable: piExecutable || process.env.OFFICE_PI_BIN || 'pi',
   piProviderExtension: process.env.OFFICE_PI_PROVIDER_EXTENSION});
 const clients = new Set();
 const mime = {
@@ -93,6 +95,8 @@ const mime = {
   'office-scene.css': 'text/css; charset=utf-8',
   'workspace.js': 'text/javascript; charset=utf-8',
   'navigation.js': 'text/javascript; charset=utf-8',
+  'discovery-model.js': 'text/javascript; charset=utf-8',
+  'agent-permissions.js': 'text/javascript; charset=utf-8',
   'workspace.css': 'text/css; charset=utf-8',
   'style.css': 'text/css; charset=utf-8',
 };
@@ -134,16 +138,14 @@ async function body(req) {
   return value;
 }
 
+const collectorApi = createCollectorApi(discovery, body);
 async function receiveCollector(req, res) {
   try {
     if (collectorPackageArchive && req.method === 'GET' && req.url === '/v1/collector-package.tgz') {
       res.writeHead(200, {'Content-Type':'application/gzip','Content-Length':collectorPackageArchive.length,'Cache-Control':'no-cache'});
       return res.end(collectorPackageArchive);
     }
-    if (req.method !== 'POST' || req.url !== '/v1/report') fail('未找到该地址', 404);
-    if (req.headers.origin) fail('采集接口仅供客户端使用', 403);
-    const machineId = discovery.authenticate(req.headers.authorization);
-    return json(res, discovery.receive(machineId, await body(req)));
+    return json(res, await collectorApi(req));
   } catch (error) {
     if (res.headersSent) return res.destroy();
     if (!error.status) console.error(error);
@@ -416,9 +418,10 @@ const server = createServer(async (req, res) => {
       if (path === '/api/machines') {
         if (!collectorServer?.listening) fail('采集接收端未启动', 409);
         const command = input.address === undefined ? null : collectorCommand(input,allowLanHttp,Boolean(collectorPackageArchive));
-        const pairing = discovery.issueMachine(input);
+        const pairing = input.pairingMode === 'code' ? discovery.issuePairing(input) : discovery.issueMachine(input);
         if (!command) return json(res,pairing,201);
-        return json(res,{machine:pairing.machine, command:command.launch(pairing.token),
+        return json(res,{machine:pairing.machine, code:pairing.code, expiresAt:pairing.expiresAt,
+          command:pairing.code ? command.login : command.launch(pairing.token),
           restart:command.restart, loopback:command.loopback},201);
       }
       const machineRoute = path.match(/^\/api\/machines\/([a-f0-9-]+)\/revoke$/);

@@ -1,4 +1,6 @@
 import { settingsGroups, settingsTitles, navigationIcon, taskMatchesView } from './navigation.js';
+import { discoveryGroups, agentRunnerChoices, selectedRunnerChoice, candidateRuntimes, candidateExecutionStatus } from './discovery-model.js';
+import { agentPermissionDefinitions, agentAuthorization, executionAdapterStatus, agentCanExecute } from './agent-permissions.js';
 import { createOverview, officeOverview } from './overview.js';
 import { createWorkspaceView } from './workspace.js';
 import { avatarFields, officeAvatars, resolveAvatar } from './office-avatars.js';
@@ -17,9 +19,9 @@ function openModal(id) {
 const providerLabels = {
   codex: 'Codex', pi: 'Pi', claude: 'Claude Code', gemini: 'Gemini CLI', opencode: 'OpenCode',
   aider: 'Aider', cursor: 'Cursor Agent', copilot: 'Copilot CLI', qwen: 'Qwen Code',
-  kiro: 'Kiro CLI', openclaw: 'OpenClaw',
+  kiro: 'Kiro CLI', openclaw: 'OpenClaw', workbuddy: 'WorkBuddy', antigravity: 'Antigravity',
 };
-const runtimeLabels = {codex: 'Codex', pi: 'Pi', demo: '演示运行器', observed: '仅采集'};
+const runtimeLabels = {codex: 'Codex', pi: 'Pi', demo: '演示运行器', observed: '仅观察模式'};
 const machineLabels = {awaiting: '等待配对', online: '在线', offline: '离线', revoked: '已撤销'};
 const roleLabels = {worker: '执行员工', lead: '项目负责人', hr: '人事', finance: '财务'};
 const labels = {
@@ -49,7 +51,8 @@ let sceneActors = [], selectedActor;
 const officeStrolls = createOfficeStrolls();
 let fullTaskBoard = false, taskScopePage = 'all';
 let taskFilters = {}, taskFilterDraft = {};
-let boardScope = 'all', boardFilterOpen = false, boardShowMeta = true, boardHideEmpty = false;
+let boardScope = 'all', boardFilterOpen = false, boardShowMeta = true, boardHideEmpty = false, boardShowAllColumns = false;
+const coreBoardStates = new Set(['todo', 'in_progress', 'review', 'done']);
 let boardMenuAnchor, boardSubmenuAnchor;
 const boardScopes = {all: '全部', assigned: '已分配', unassigned: '未分配', project: '项目任务'};
 const priorityLabels = {none: '无', low: '低', medium: '中', high: '高', urgent: '紧急'};
@@ -67,7 +70,7 @@ const memberActions = new Set([
   'task-view', 'task-discussion-view', 'task-filters-clear', 'task-view-switch', 'task-jump-comment',
   'task-view-set', 'task-group-toggle', 'task-selection-clear', 'task-export', 'task-table-group', 'task-table-columns', 'task-table-column',
   'task-reply', 'task-remove-mention', 'task-compose', 'board-scope', 'board-filter', 'board-display',
-  'board-show-meta', 'board-hide-empty', 'board-task-menu', 'board-copy-link', 'board-column-menu', 'board-column-filter',
+  'board-show-meta', 'board-hide-empty', 'board-all-columns', 'board-task-menu', 'board-copy-link', 'board-column-menu', 'board-column-filter',
 ]);
 const isMember = () => signedInUser?.role === 'member';
 const actionAllowed = (type, id) => !isMember() || (memberActions.has(type) &&
@@ -476,6 +479,8 @@ function tasks() {
   const items = filteredTasks();
   const view = taskViewNames[taskView ?? preferences.taskView] ? taskView ?? preferences.taskView : 'board';
   const filterCount = Object.values(taskFilters).filter(Boolean).length;
+  const hiddenPeripheralCount = view === 'board' && !boardHideEmpty && !boardShowAllColumns
+    ? data.taskStates.filter(status => !coreBoardStates.has(status) && !items.some(task => task.status === status)).length : 0;
   return `<header class="task-board-header">
     <div>${boardButton('ws-nav', '返回项目', 'tasks', 'arrow', {compact:true})}<h1>${taskScopePage === 'mine' ? '我的任务' : taskScopePage === 'scheduled' ? '定时任务' : '任务'}</h1></div>
     ${boardButton('task-edit', '新建任务', '', 'plus')}
@@ -486,6 +491,8 @@ function tasks() {
       boardButton('board-scope', label, scope, '', {active:boardScope === scope})).join('')}</div>
     <div class="task-board-controls">
       <span class="task-board-running"><i></i>${running} 个智能体工作中</span>
+      ${view === 'board' && !boardHideEmpty && (hiddenPeripheralCount > 0 || boardShowAllColumns)
+        ? boardButton('board-all-columns', boardShowAllColumns ? '精简空列' : `+${hiddenPeripheralCount} 扩展列`, '', '', {active:boardShowAllColumns}) : ''}
       ${boardButton('board-filter', '筛选' + (filterCount ? ' · ' + filterCount : ''), '', 'filter', {active:boardFilterOpen})}
       ${boardButton('board-display', '显示', '', 'display', {popup:true})}
       ${view === 'table' ? boardButton('task-table-group',tableGrouping ? '按状态分组' : '分组','','group',{active:tableGrouping}) + boardButton('task-table-columns','列','','table',{popup:true}) : ''}
@@ -497,6 +504,7 @@ function tasks() {
     `<div class="board task-lanes" tabindex="0" aria-label="按状态分组的任务">${data.taskStates.map(status => {
       const column = items.filter(task => task.status === status);
       if (boardHideEmpty && !column.length) return '';
+      if (!boardShowAllColumns && !coreBoardStates.has(status) && !column.length) return '';
       return `<section class="column task-lane" data-state="${status}"><header>
         ${statusIcon(status)}<h2>${escape(workflowName(status))}</h2><span>${column.length}</span>
         <div class="task-lane-actions">${boardButton('board-column-menu', workflowName(status) + '列操作', status, 'more', {compact:true,popup:true})}
@@ -939,66 +947,131 @@ function runTable(runs) {
 }
 
 function namedCard(kind, record) {
-  return `<article class="card"><div class="card-head"><h3>${escape(record.name)}</h3>${btn(kind + '-edit', '编辑', record.id)}</div>
-    ${record.description ? `<p>${escape(record.description)}</p>` : ''}
-    ${kind === 'skill' && record.source ? `<p>${escape(record.source.repository)} · ${record.source.files} 个文件 · ${escape(record.source.ref.slice(0,7))}</p><a class="space-link" href="${escape(record.source.url)}" target="_blank" rel="noopener noreferrer">查看来源版本</a>` : ''}</article>`;
+  const isSkill = kind === 'skill';
+  const sourceMeta = isSkill && record.source
+    ? `${record.source.repository} · ${record.source.files} 个文件 · ${record.source.ref.slice(0, 7)}`
+    : '';
+  const hasFooter = isSkill;
+  return `<div class="resource-card-slot"><article class="card resource-card" tabindex="0">
+    <div class="resource-card-head">
+      <h3>${escape(record.name)}</h3>
+      ${btn(kind + '-edit', '编辑', record.id)}
+    </div>
+    <p class="resource-card-desc">${escape(record.description || '暂无说明')}</p>
+    ${hasFooter ? `<footer class="resource-card-foot">
+      <span class="resource-card-source">${escape(sourceMeta || '本地技能')}</span>
+      ${record.source ? `<a class="space-link resource-card-link" href="${escape(record.source.url)}" target="_blank" rel="noopener noreferrer">来源版本 ↗</a>` : ''}
+    </footer>` : ''}
+  </article></div>`;
 }
 
 function candidatePresence(candidate) {
   const machine = find('machines', candidate.machineId);
   if (machine?.status !== 'online') return badge('offline', '来源离线');
   if (candidate.kind === 'process' && machine.processScan !== 'ok') return badge('paused', '进程状态未知');
-  if (!candidate.present) return badge('offline', candidate.kind === 'process' ? '进程已退出' : '未检测到安装');
+  if (!candidate.present) return badge('offline', candidate.kind === 'installation' ? '未检测到安装' : '未检测到运行');
+  if (candidate.kind === 'runtime') return badge('idle', '检测到运行器');
   return candidate.kind === 'process' ? badge('running', '检测到进程') : badge('idle', '已安装');
+}
+
+function discoveryActions(item, hasHr) {
+  if (!item || !['discovered', 'review'].includes(item.status)) return '';
+  return actions(btn('candidate-review', item.draft ? '编辑档案' : '填写档案', item.id),
+    item.status === 'review' ? btn('candidate-approve', '确认入职', item.id, true) : '',
+    item.status === 'discovered' && hasHr ? btn('candidate-assign', '交给人事', item.id) : '',
+    btn('candidate-dismiss', '忽略', item.id));
+}
+
+function discoveryInstances(group) {
+  const count = group.processes.length;
+  const summary = group.processState === 'offline' ? `来源离线 · 上次检测 ${count} 个实例`
+    : group.processState === 'unknown' ? `状态未知 · 上次检测 ${count} 个实例` : `${count} 个运行实例`;
+  if (!count) return `<span class="description">${escape(summary)}</span>`;
+  return `<details class="discovery-instances" data-discovery-details="${escape(group.key)}">
+    <summary class="disclosure-chevron" data-discovery-focus="${escape(group.key)}">${escape(summary)}</summary>
+    <p class="description">进程仅供诊断，不作为员工或入职候选。未关联的进程不代表平台任务。</p>
+    <ul>${group.processes.map(instance => `<li><code>PID ${instance.pid}</code>
+      <span>${escape(instance.agentId ? name('agents', instance.agentId) + ' · 历史关联' : '未关联会话')}</span>
+      <time>${escape(localDateTime(instance.lastSeenAt))}</time></li>`).join('')}</ul>
+  </details>`;
 }
 
 function discovery() {
   const machines = data.machines ?? [];
-  const candidates = (data.candidates ?? []).filter(item => item.status === 'review' ||
-    (item.status === 'discovered' && item.present && find('machines', item.machineId)?.status !== 'revoked'));
+  const groups = discoveryGroups(data.candidates, machines);
+  const pending = groups.reduce((count, group) => count + group.legacyReviews.length +
+    (['discovered', 'review'].includes(group.candidate?.status) ? 1 : 0), 0);
   const collector = data.collector;
   const endpoint = collector?.listening
     ? `采集端口 ${collector.port}（${collector.protocol.toUpperCase()}）${collector.loopback ? ' · 仅回环' : ''}`
     : '远程接收端未启动';
   const hasHr = data.agents.some(agent => agent.role === 'hr' && agent.runtime === 'codex');
-  return section('发现与入职', '本机与已配对机器持续扫描。候选通过入职确认后才会进入员工名单。',
+  return section('发现与入职', '按机器和运行器发现可用能力，入职审批后创建员工。运行进程合并展示，仅用于诊断。',
     actions(btn('scan-local', '立即扫描本机'), collector?.listening ? btn('machine-pair', '配对新机器', '', true) : '')) +
-    `<section class="panel"><div class="card-head"><h2>待处理候选</h2><span class="badge">${candidates.length}</span></div>
-    ${candidates.length ? `<div class="table"><table>
-      <thead><tr><th>Agent</th><th>来源</th><th>发现状态</th><th>人事状态</th><th>操作</th></tr></thead>
-      <tbody>${candidates.map(item => `<tr><td>${escape(providerLabels[item.provider])}
-        ${item.kind === 'process' ? `<span class="badge">PID ${item.pid}</span>` : ''}</td>
-      <td>${escape(name('machines', item.machineId))}</td><td>${candidatePresence(item)}</td>
-      <td>${item.status === 'review' ? badge('review', '待确认') : badge('todo', '待建档')}</td>
-      <td>${actions(btn('candidate-review', item.draft ? '编辑档案' : '填写档案', item.id),
-        item.status === 'review' ? btn('candidate-approve', '确认入职', item.id, true) : '',
-        item.status === 'discovered' && hasHr ? btn('candidate-assign', '交给人事', item.id) : '',
-        btn('candidate-dismiss', '忽略', item.id))}</td></tr>`).join('')}</tbody></table></div>` : empty('暂无待处理候选。')}
+    `<section class="panel"><div class="card-head"><h2>发现的运行器</h2><span class="badge">${groups.length} 个运行器 · ${pending} 项待处理</span></div>
+    <p class="description">发现状态来自机器扫描；执行适配与员工配置使用同一标准。“已接入执行”表示平台已有执行接口，不代表已登录、已入职或已获任务授权。</p>
+    ${groups.length ? `<div class="table"><table class="discovery-runtimes">
+      <thead><tr><th>运行器</th><th>来源</th><th>发现状态</th><th>执行适配</th><th>运行实例</th><th>人事状态</th><th>操作</th></tr></thead>
+      <tbody>${groups.map(group => {
+        const item = group.candidate;
+        const status = item?.status;
+        const adapter = candidateExecutionStatus(item ?? {provider:group.provider, machineId:group.machine.id});
+        return `<tr><td><strong>${escape(providerLabels[group.provider] ?? group.provider)}</strong></td>
+          <td>${escape(group.machine.name)}</td><td>${item ? candidatePresence(item) : badge('idle', '检测到运行器')}</td>
+          <td title="${escape(adapter.detail)}">${badge(adapter.ready ? 'done' : 'idle', adapter.label)}</td>
+          <td>${discoveryInstances(group)}</td>
+          <td>${badge(status === 'review' ? 'review' : status === 'approved' ? 'done' : status === 'dismissed' ? 'offline' : 'todo',
+            {review:'待确认', approved:'已入职', dismissed:'已忽略', discovered:'待建档'}[status] ?? '待扫描')}
+          ${group.legacyReviews.length ? `<details class="discovery-instances" data-discovery-details="legacy:${escape(group.key)}">
+            <summary class="disclosure-chevron">${group.legacyReviews.length} 份历史档案待确认</summary>
+            ${group.legacyReviews.map(row => `<div class="discovery-legacy"><p>${escape(row.draft?.name ?? '历史进程档案')}</p>${discoveryActions(row, hasHr)}</div>`).join('')}
+          </details>` : ''}</td>
+          <td>${discoveryActions(item, hasHr) || (item?.agentId && find('agents', item.agentId) ? btn('agent-edit', '查看员工', item.agentId) : '<span class="description">—</span>')}</td></tr>`;
+      }).join('')}</tbody></table></div>` : empty('暂无可用运行器，可扫描本机或配对新机器。')}
     </section>
     <section class="panel"><div class="card-head"><h2>采集机器</h2>
-      <a href="/downloads/office-collector.mjs" download>下载独立脚本</a></div>
+      <a class="symbio-download-link" href="/downloads/office-collector.mjs" download>↓ 下载独立脚本</a></div>
     <p class="description">${escape(endpoint)}${collector?.packageSpec ? ' · npm ' + escape(collector.packageSpec) : ''}</p>
     ${machines.length ? `<div class="table"><table>
-      <thead><tr><th>机器</th><th>系统</th><th>状态</th><th>最近上报</th><th></th></tr></thead>
+      <thead><tr><th>机器</th><th>系统</th><th>状态</th><th>任务读取范围</th><th>最近上报</th><th></th></tr></thead>
       <tbody>${machines.map(machine => `<tr><td>${escape(machine.name)}${machine.hostname ? ' · ' + escape(machine.hostname) : ''}</td>
         <td>${escape(machine.platform ?? '—')}</td>
         <td>${badge(machine.status, machineLabels[machine.status])} ${machine.processScan === 'unavailable' && machine.status === 'online'
           ? badge('paused', '进程扫描不可用') : ''}</td>
-        <td>${machine.seenAt ? escape(localDateTime(machine.seenAt)) : '—'}</td>
+        <td>${escape(machine.local ? '本机' : machine.taskAccess === 'all' ? '所有项目（只读）'
+          : machine.taskAccess?.startsWith('project:') ? name('projects', machine.taskAccess.slice(8)) + '（只读）' : '仅采集')}</td>
+        <td>${machine.seenAt ? escape(localDateTime(machine.seenAt)) : machine.pairingExpiresAt && Date.parse(machine.pairingExpiresAt) <= Date.now() ? '配对码已过期，请撤销后重新生成' : '—'}</td>
         <td>${!machine.local && machine.status !== 'revoked' ? btn('machine-revoke', '撤销配对', machine.id) : ''}</td></tr>`).join('')}</tbody></table></div>` : empty('正在等待本机首次扫描。')}
     </section>`;
 }
 
 function finance() {
-  return section('统计', '查看 Codex 和 Pi 的 Token 消耗、预留额度与预算余额。', btn('budget-edit', '设置预算', '', true)) +
-    `<section class="panel table"><table><thead><tr><th>范围</th><th>对象</th><th>预算</th><th>已上报</th><th>仍预留</th><th>可分配</th><th>用量未上报</th></tr></thead>
-    <tbody>${data.ledger.map(row => `<tr><td>${{company: '公司', team: '小队', agent: '员工'}[row.scope]}</td>
-      <td>${escape(row.scope === 'company' ? '本机公司' : name(row.scope + 's', row.id))}</td>
-      ${[row.limit, row.spent, row.reserved, row.available, row.unknown].map(value =>
-        `<td class="number${value < 0 ? ' error' : ''}">${number(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></section>
-    <section class="panel"><h2>用量明细</h2>${data.runs.some(run => run.usage) ? `<div class="table"><table>
+  const company = data.ledger.find(row => row.scope === 'company');
+  const budgeted = data.ledger.filter(row => row.limit > 0);
+  const usageRuns = data.runs.filter(run => run.usage);
+  const totalSpent = company?.spent ?? usageRuns.reduce((sum, run) => sum + (run.usage?.totalTokens ?? 0), 0);
+  const totalReserved = company?.reserved ?? 0;
+  const companyPct = company?.limit > 0 ? Math.min(100, Math.round(company.spent / company.limit * 100)) : null;
+  const summary = `<div class="symbio-metrics">
+    <article class="symbio-metric"><span>累计消耗 Token</span><strong>${number(totalSpent)}</strong><small>${company?.limit > 0 ? `总预算 ${number(company.limit)}（已用 ${companyPct}%）` : '公司预算未设上限'}</small></article>
+    <article class="symbio-metric"><span>当前预留额度</span><strong>${number(totalReserved)}</strong><small>进行中任务与会话占用</small></article>
+    <article class="symbio-metric"><span>已配置预算对象</span><strong>${budgeted.length}</strong><small>共 ${data.ledger.length} 个核算单元</small></article>
+    <article class="symbio-metric"><span>已上报执行记录</span><strong>${usageRuns.length}</strong><small>${company?.unknown ? `${company.unknown} 次用量待上报` : '全部执行已核算'}</small></article>
+  </div>`;
+  return section('统计', '查看 Codex 和 Pi 的 Token 消耗、预留额度与预算余额。', btn('budget-edit', '设置预算', '', true)) + summary +
+    `<section class="panel"><div class="card-head"><h2>预算与额度分配</h2></div><div class="table"><table><thead><tr><th>范围</th><th>对象</th><th>预算</th><th>使用进度</th><th>已上报</th><th>仍预留</th><th>可分配</th><th>未上报</th></tr></thead>
+    <tbody>${data.ledger.map(row => {
+      const pct = row.limit > 0 ? Math.min(100, Math.round((row.spent + row.reserved) / row.limit * 100)) : null;
+      return `<tr><td>${{company: '公司', team: '小队', agent: '员工'}[row.scope]}</td>
+      <td><strong>${escape(row.scope === 'company' ? '本机公司' : name(row.scope + 's', row.id))}</strong></td>
+      <td class="number">${number(row.limit)}</td>
+      <td>${pct !== null ? `<div class="finance-budget-cell"><progress max="100" value="${pct}" class="${pct >= 85 ? 'warn' : ''}"></progress><small>${pct}%</small></div>` : '<span class="description">未设上限</span>'}</td>
+      ${[row.spent, row.reserved, row.available, row.unknown].map(value =>
+        `<td class="number${value < 0 ? ' error' : ''}">${number(value)}</td>`).join('')}</tr>`;
+    }).join('')}</tbody></table></div></section>
+    <section class="panel"><div class="card-head"><h2>用量明细</h2><span class="badge">最近 ${Math.min(usageRuns.length, 40)} 条</span></div>${usageRuns.length ? `<div class="table"><table>
     <thead><tr><th>员工</th><th>输入</th><th>缓存输入</th><th>输出</th><th>总 Token</th><th></th></tr></thead>
-    <tbody>${data.runs.filter(run => run.usage).slice(0, 40).map(run => `<tr>
+    <tbody>${usageRuns.slice(0, 40).map(run => `<tr>
       <td>${escape(name('agents', run.agentId))}</td>${['inputTokens', 'cachedInputTokens', 'outputTokens', 'totalTokens'].map(key =>
         `<td class="number">${number(run.usage[key])}</td>`).join('')}<td>${btn('run-view', '查看', run.id)}</td>
     </tr>`).join('')}</tbody></table></div>` : empty('运行器上报 Token 后会显示记录。') }</section>`;
@@ -1027,7 +1100,12 @@ function conversations() {
           btn('conversation-task', '创建后续任务', conversation.id),
         )}
       </article>`;
-    }).join('')}</div>` : empty('发起讨论并选中至少两名员工。'));
+    }).join('')}</div>` : `<section class="symbio-empty-state">
+      <div class="symbio-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3h18v15H8l-5 4V3"/></svg></div>
+      <h2>还没有进行中的讨论</h2>
+      <p>选中至少两名智能体发起双人交流或多人会议室讨论，协作记录会自动沉淀并可一键转为后续任务。</p>
+      <div class="actions">${btn('conversation-new', '＋ 发起讨论', '', true)}</div>
+    </section>`);
 }
 
 const rows = pairs => `<dl class="setting-rows">${pairs.map(([label, value]) =>
@@ -1102,19 +1180,19 @@ function settingsBody(section = settingsPage) {
       ]), actions(btn('goto-discovery', '查看采集机器'), btn('scan-local', '立即扫描')));
     }
     case 'organization':
-      return settingsPanel('小队', data.teams.length ? `<div class="grid">${data.teams.map(team => namedCard('team', team)).join('')}</div>` : empty('暂无小队。创建后可为成员分组，并按小队分配任务。'), btn('team-edit','创建小队','',true));
+      return settingsPanel('全部小队', data.teams.length ? `<div class="resource-grid">${data.teams.map(team => namedCard('team', team)).join('')}</div>` : empty('暂无小队。创建后可为成员分组，并按小队分配任务。'), `<span class="badge">${data.teams.length} 个小队</span>`);
     case 'skills':
-      return settingsPanel('Skills', data.skills.length
-        ? `<div class="grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>`
+      return settingsPanel('已配置技能', data.skills.length
+        ? `<div class="resource-grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>`
         : empty('暂无技能。可从技能目录下载，或上传 SKILL.md。'),
-        actions(btn('skill-market', '下载技能', '', true),btn('skill-edit', '创建技能')));
+        `<span class="badge">${data.skills.length} 项技能 · 悬停查看完整内容</span>`);
     case 'mcp':
       return settingsPanel('MCP 服务', data.mcpServers.length
-          ? `<div class="grid">${data.mcpServers.map(server => `<article class="card">
-            <div class="card-head"><h3>${escape(server.name)}</h3>${btn('mcp-edit', '编辑', server.id)}</div>
-            <p>${server.transport === 'stdio' ? 'stdio' : 'Streamable HTTP'} · ${server.enabled ? '已启用' : '已停用'}</p>
-            <p>${escape(server.tools.join('、'))}</p>
-          </article>`).join('')}</div>`
+          ? `<div class="resource-grid">${data.mcpServers.map(server => `<div class="resource-card-slot"><article class="card resource-card" tabindex="0">
+            <div class="resource-card-head"><h3>${escape(server.name)}</h3>${btn('mcp-edit', '编辑', server.id)}</div>
+            <p class="resource-card-desc">${escape(server.tools.join('、') || '暂无工具列表')}</p>
+            <footer class="resource-card-foot"><span class="resource-card-source">${server.transport === 'stdio' ? 'stdio' : 'Streamable HTTP'} · ${server.enabled ? '已启用' : '已停用'}</span></footer>
+          </article></div>`).join('')}</div>`
           : empty('暂无 MCP 服务。添加后可在员工档案中授权。'), btn('mcp-edit', '添加 MCP 服务', '', true));
     case 'audit':
       return settingsPanel('最近 100 条管理变更', auditData?.length ? `<div class="table"><table>
@@ -1191,10 +1269,12 @@ function settingsScreen() {
     </div>`;
 }
 function teamResourcePage(kind) {
-  const copy = {teams:['小队','将真人与智能体按职责分组，维护协作团队。','organization'],
-    skills:['Skills','下载、创建和维护技能，并在智能体档案中分配。','skills'],
-    runtime:['运行时','配置执行并发、超时和默认额度，管理本机与远程采集。','runtime']}[kind];
-  return section(copy[0],copy[1]) + settingsBody(copy[2]);
+  const copy = {
+    teams: ['小队', '将真人与智能体按职责分组，维护协作团队。', 'organization', btn('team-edit', '＋ 创建小队', '', true)],
+    skills: ['Skills', '下载、创建和维护技能，并在智能体档案中分配。', 'skills', actions(btn('skill-edit', '创建技能'), btn('skill-market', '下载技能', '', true))],
+    runtime: ['运行时', '配置执行并发、超时和默认额度，管理本机与远程采集。', 'runtime', ''],
+  }[kind];
+  return section(copy[0], copy[1], copy[3]) + settingsBody(copy[2]);
 }
 
 function inboxScreen() {
@@ -1221,7 +1301,11 @@ function inboxScreen() {
       <time>${escape(localDateTime(event.time))}</time>
       ${event.payload.error ? `<p>${escape(event.payload.error)}</p>` : ''}
       ${event.type === 'task.mention' ? `<p>${escape(event.payload.author)} 提及了 ${escape(event.payload.recipients.join('、'))}</p>` : ''}</div>${details}</article>`;
-  }).join('')}</div>` : empty(inboxData ? '暂无通知。' : '正在加载通知…'));
+  }).join('')}</div>` : `<section class="symbio-empty-state">
+      <div class="symbio-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 3h18v18H3zM3 14h5l2 3h4l2-3h5"/></svg></div>
+      <h2>${inboxData ? '收件箱已清空' : '正在加载通知…'}</h2>
+      <p>${inboxData ? '任务待验收、执行异常、入职审批以及评论中的 @ 提及都会汇总在这里。' : '请稍候，正在同步工作空间动态。'}</p>
+    </section>`);
 }
 
 const workspaceView = createWorkspaceView({data: () => data, escape, btn, input: (...args) => input(...args),
@@ -1286,7 +1370,14 @@ function render() {
   const menuOpen = el('main').querySelector('.office-menu')?.open;
   const officeRoster = el('main').querySelector('.office-live-roster')?.scrollLeft;
   const workstationScroll = el('main').querySelector('.symbio-workstation-roster')?.scrollTop;
+  const discoveryOpen = new Set([...el('main').querySelectorAll('[data-discovery-details][open]')].map(node => node.dataset.discoveryDetails));
+  const discoveryScroll = new Map([...el('main').querySelectorAll('[data-discovery-details]')]
+    .map(node => [node.dataset.discoveryDetails, node.querySelector('ul')?.scrollTop ?? 0]));
   el('main').innerHTML = renderers[page]();
+  for (const node of el('main').querySelectorAll('[data-discovery-details]')) {
+    node.open = discoveryOpen.has(node.dataset.discoveryDetails);
+    if (node.querySelector('ul')) node.querySelector('ul').scrollTop = discoveryScroll.get(node.dataset.discoveryDetails) ?? 0;
+  }
   for (const checkbox of el('main').querySelectorAll('[data-indeterminate]')) checkbox.indeterminate = true;
   renderOfficeScene();
   if (workstationScroll && el('main').querySelector('.symbio-workstation-roster')) {
@@ -1315,6 +1406,8 @@ function render() {
     const filter = el('task-filters')?.elements[filterFocus];
     filter?.focus({preventScroll: true});
     if (selection) filter?.setSelectionRange(...selection);
+  } else if (key.discoveryFocus) {
+    [...el('main').querySelectorAll('[data-discovery-focus]')].find(node => node.dataset.discoveryFocus === key.discoveryFocus)?.focus({preventScroll: true});
   } else if (key.action) {
     const next = [...el('main').querySelectorAll('[data-action]')].find(button =>
       button.dataset.action === key.action && button.dataset.id === key.id);
@@ -1479,13 +1572,37 @@ const area = (label, key, value = '', required = false, maxLength = 8000) =>
   `<label>${label}<textarea name="${key}" maxlength="${maxLength}"${required ? ' required' : ''}>${escape(value)}</textarea></label>`;
 function select(label, key, options, value, {multiple = false, required = false} = {}) {
   const selected = multiple ? value ?? [] : [value];
-  const field = `<select name="${escape(key)}"${multiple ? ' multiple size="4"' : ''}${required ? ' required' : ''}>
+  if (multiple) {
+    const selectedSet = new Set(selected);
+    const count = options.filter(([id]) => selectedSet.has(id)).length;
+    return `<fieldset class="multi-select" data-multi-field="${escape(key)}">
+      <div class="multi-select-head">
+        <legend>${escape(label)}</legend>
+        <div class="multi-select-meta">
+          <span class="multi-select-count" data-multi-count data-active="${count > 0}">已选 ${count} / ${options.length}</span>
+          <button type="button" class="multi-select-clear" data-multi-clear${count ? '' : ' hidden'}>清空</button>
+        </div>
+      </div>
+      <div class="multi-select-list" role="group" aria-label="${escape(label)}">
+        ${options.length ? options.map(([id, text]) => {
+          const checked = selectedSet.has(id);
+          return `<label class="checkbox multi-select-option">
+            <input type="checkbox" name="${escape(key)}" value="${escape(id)}"${checked ? ' checked' : ''}>
+            <span class="multi-select-check" aria-hidden="true"></span>
+            <span class="multi-select-text">${escape(text)}</span>
+            <span class="multi-select-tag" aria-hidden="true">已选</span>
+          </label>`;
+        }).join('') : '<p class="multi-select-empty">暂无可选项</p>'}
+      </div>
+    </fieldset>`;
+  }
+  const field = `<select name="${escape(key)}"${required ? ' required' : ''}>
     ${options.map(([id, text]) => `<option value="${escape(id)}"${selected.includes(id) ? ' selected' : ''}>${escape(text)}</option>`).join('')}</select>`;
-  return `<label>${escape(label)}${multiple ? field : `<span class="select-control">${field}</span>`}</label>`;
+  return `<label>${escape(label)}<span class="select-control">${field}</span></label>`;
 }
 const options = (collection, label = 'name') => data[collection].map(record => [record.id, record[label]]);
 const optional = collection => [['', '—'], ...options(collection)];
-const assignableOptions = () => data.agents.filter(agent => agent.runtime !== 'observed')
+const assignableOptions = () => data.agents.filter(agentCanExecute)
   .map(agent => [agent.id, agent.name]);
 const budgetInput = (label, key, value, min = 1) => input(label, key, value, {type: 'number', required: true, min, max: 1e12});
 
@@ -1736,9 +1853,9 @@ async function uploadSpaceFile(projectId) {
 }
 
 const runtimeOptions = [['codex', '本机 Codex（新会话）'], ['pi', '本机 Pi（新会话）'], ['demo', '演示运行器']];
-const observedOption = ['observed', '仅采集（无平台执行权限）'];
+const observedOption = ['observed', '发现与采集来源（未绑定执行适配器）'];
 
-function agentFields(agent, runtimes, required = false) {
+function agentFields(agent, runtimes, required = false, runnerChoices) {
   return input('姓名', 'name', agent.name, {required: true}) +
     select('岗位', 'role', Object.entries(roleLabels), agent.role) +
     select('小队', 'teamId', optional('teams'), agent.teamId) +
@@ -1746,46 +1863,108 @@ function agentFields(agent, runtimes, required = false) {
     area('人格', 'personality', agent.personality, required) +
     area('职责范围', 'scope', agent.scope, required) +
     select('技能（多选）', 'skillIds', options('skills'), agent.skillIds, {multiple: true}) +
-    select('运行方式', 'runtime', runtimes, agent.runtime) +
+    (runnerChoices ? select('Agent / 运行方式', 'runnerChoice', runnerChoices.map(row => [row.value,
+      `${providerLabels[row.provider] ?? runtimeLabels[row.provider] ?? row.provider}${row.machine ? ' · ' + row.machine : ''}（${(row.adapter ?? executionAdapterStatus(row)).label}）`]),
+      selectedRunnerChoice(agent, runnerChoices))
+      + '<input type="hidden" name="runtime" value="' + escape(agent.runtime ?? 'codex') + '"><p id="runner-capability" class="description" role="status"></p>'
+      : select('运行方式', 'runtime', runtimes, agent.runtime)) +
     (runtimes.some(([runtime]) => ['codex', 'pi'].includes(runtime)) && data.mcpServers?.length
       ? select('MCP 服务（多选）', 'mcpServerIds', data.mcpServers.map(server =>
-        [server.id, server.name + (server.enabled ? '' : '（已停用）')]), agent.mcpServerIds, {multiple:true})
+        [server.id, server.name + (server.enabled ? '' : '（已停用）')]), agentAuthorization(agent).mcpServerIds, {multiple:true})
       : '') +
     (runtimes.some(([runtime]) => runtime !== 'observed') ? input('模型（可选，留空沿用本机配置）', 'model', agent.model) : '') +
     (runtimes.some(([runtime]) => runtime === 'codex' || runtime === 'demo')
-      ? select('文件权限', 'sandbox', [['read-only', '只读'], ['workspace-write', '执行目录可写']], agent.sandbox)
+      ? select('文件授权', 'sandbox', [['read-only', '只读'], ['workspace-write', '允许任务工作目录写入']], agentAuthorization(agent).sandbox)
       : '') +
-    '<p class="description">MCP 授权适用于任务执行。仅采集的员工没有平台执行权限。人事与财务的 Codex 执行使用只读文件权限。</p>';
+    '<p class="description">适配状态与管理员授权分别管理。未适配能力可在权限设置中预先授权，当前不生效；人事与财务岗位的文件操作上限为只读。</p>';
 }
 
-function updateFilePermission() {
-  const {runtime, sandbox, mcpServerIds} = el('editor').elements;
+function updateFilePermission(runnerChoices) {
+  const {runtime, sandbox, runnerChoice, model, role} = el('editor').elements;
+  const mcpField = el('editor').querySelector('[data-multi-field="mcpServerIds"]');
   const update = () => {
-    if (sandbox) sandbox.disabled = runtime.value === 'pi';
-    if (mcpServerIds) {
-      mcpServerIds.disabled = !['codex','pi'].includes(runtime.value);
-      mcpServerIds.closest('label').hidden = mcpServerIds.disabled;
+    if (runnerChoice) {
+      const selected = runnerChoices.find(row => row.value === runnerChoice.value);
+      runtime.value = selected.runtime;
+      el('runner-capability').textContent = selected.runtime === 'observed'
+        ? (selected.adapter ?? executionAdapterStatus(selected)).detail + ' 管理员可在权限设置中保存授权，未适配的能力暂不生效。'
+        : selected.runtime === 'demo' ? '演示运行器不调用真实模型。' : '执行适配器已接入；是否允许执行由管理员授权决定，使用本机登录配置启动新会话。';
+    }
+    if (sandbox) { sandbox.disabled = ['pi','observed'].includes(runtime.value) || ['hr','finance'].includes(role?.value); if (sandbox.disabled) sandbox.value = 'read-only'; }
+    if (model) { model.disabled = runtime.value === 'observed'; model.closest('label').hidden = model.disabled; }
+    if (mcpField) {
+      mcpField.disabled = !['codex','pi'].includes(runtime.value);
+      mcpField.hidden = mcpField.disabled;
     }
   };
   runtime.addEventListener('change', update);
+  runnerChoice?.addEventListener('change', update);
+  role?.addEventListener('change', update);
   update();
 }
 
 function editAgent(id) {
   const agent = find('agents', id) ?? {};
-  const runtimes = agent.candidateId
-    ? [observedOption, ...runtimeOptions].filter(([id]) => id === agent.runtime) : runtimeOptions;
-  edit(id ? '员工配置' : '创建员工', agentFields(agent, runtimes, Boolean(agent.candidateId)),
-    form => api('agents', {...Object.fromEntries(form), id, skillIds:form.getAll('skillIds'), mcpServerIds:form.getAll('mcpServerIds')}));
-  updateFilePermission();
+  const choices = agentRunnerChoices(agent, data.candidates, data.machines);
+  edit(id ? '员工配置' : '创建员工', agentFields(agent, runtimeOptions, true, choices),
+    form => {
+      const chosen = choices.find(row => row.value === form.get('runnerChoice'));
+      const authorization = agentAuthorization(id ? agent : {role:form.get('role')});
+      const mcpField = el('editor').querySelector('[data-multi-field="mcpServerIds"]');
+      const payload = {...Object.fromEntries(form), id, runtime:chosen.runtime, runnerCandidateId:chosen.candidateId ?? '',
+        skillIds:form.getAll('skillIds'), authorization:{...authorization,
+          sandbox:form.has('sandbox') ? form.get('sandbox') : authorization.sandbox,
+          mcpServerIds:mcpField && !mcpField.disabled
+            ? form.getAll('mcpServerIds') : authorization.mcpServerIds}};
+      if (!id && chosen.runtime === 'observed') return api('candidates/' + chosen.candidateId + '/review', payload);
+      return api('agents', payload);
+    });
+  updateFilePermission(choices);
+  if (!id) {
+    const selector = el('editor').elements.runnerChoice;
+    const updateAction = () => { el('editor').querySelector('[type="submit"]').textContent = choices.find(row => row.value === selector.value)?.runtime === 'observed' ? '提交入职档案' : '保存'; };
+    selector.addEventListener('change', updateAction); updateAction();
+  }
+}
+
+function editAgentPermissions(id) {
+  const agent = find('agents', id);
+  if (!agent) return;
+  const authorization = agentAuthorization(agent);
+  const adapter = executionAdapterStatus(agent);
+  const toolNote = definition => !definition.roles.includes(agent.role) ? '待岗位许可：当前岗位不具备此管理能力'
+    : !definition.runtimes.includes(agent.runtime) ? '待适配：当前执行适配器不支持此工具' : '已适配，勾选后可在新任务中使用';
+  edit(agent.name + ' · 权限设置',
+    `<section class="agent-adapter-status"><h3>执行适配状态 · ${escape(adapter.label)}</h3><p class="description">${escape(adapter.detail)}</p></section>` +
+    '<p class="description">以下是管理员授权，可独立保存。实际生效范围 = 已接入能力 ∩ 岗位上限 ∩ 管理员授权。修改仅影响新排队的任务。</p>' +
+    `<fieldset class="agent-permission-options"><legend>管理员授权</legend>
+      <label class="checkbox"><input name="execution" type="checkbox"${authorization.execution ? ' checked' : ''}>允许平台执行任务</label>
+      <p id="execution-authorization-status" class="description" role="status"></p></fieldset>` +
+    select('文件写入授权', 'sandbox', [['read-only','只读'],['workspace-write','允许任务工作目录写入']], authorization.sandbox) +
+    `<p class="description">${!adapter.ready ? '待适配：当前来源尚不能执行文件操作。' : agent.runtime === 'pi' ? '待适配：当前 Pi 适配器关闭内置文件与终端工具。' : ['hr','finance'].includes(agent.role) ? '岗位限制：人事与财务的文件操作上限为只读。' : '写入能力已适配，授权范围仅限任务工作目录。'} 写入授权可保存，实际执行仍受上述能力与岗位限制。</p>` +
+    `<fieldset class="agent-permission-options"><legend>公司工具授权</legend>${agentPermissionDefinitions.map(definition =>
+      `<label class="checkbox"><input type="checkbox" name="permission-${definition.key}"${authorization.tools[definition.key] ? ' checked' : ''}>${escape(definition.label)}
+      <span class="description">${escape(toolNote(definition))}</span></label>`).join('')}</fieldset>` +
+    select('MCP 服务授权（多选）', 'mcpServerIds', (data.mcpServers ?? []).map(server =>
+      [server.id, server.name + (server.enabled ? '' : '（服务已停用）')]), authorization.mcpServerIds, {multiple:true}) +
+    `<p class="description">${['codex','pi'].includes(agent.runtime) ? 'MCP 已接入，所选服务将在授权执行的新任务中提供。' : 'MCP 尚未适配：授权选择会保存，当前不会提供服务。'} MCP 的外部访问范围由服务自身控制。</p>`,
+    form => {
+      const {candidateId, ...profile} = agent;
+      return api('agents', {...profile, expectedVersion:agent.version, authorization:{execution:form.has('execution'),
+        sandbox:form.get('sandbox'), mcpServerIds:form.getAll('mcpServerIds'),
+        tools:Object.fromEntries(agentPermissionDefinitions.map(definition => [definition.key, form.has('permission-' + definition.key)]))}});
+    });
+  const updateStatus = () => { el('execution-authorization-status').textContent = !el('editor').elements.execution.checked
+    ? '管理员未授权：不会派发新的平台执行任务。'
+    : adapter.ready ? '已授权，执行适配器已就绪；任务仍需满足派发条件。' : '已授权，待适配：尚不能执行任务，开启授权不会自动接入执行接口。'; };
+  el('editor').elements.execution.addEventListener('change', updateStatus);
+  updateStatus();
 }
 
 function editCandidate(id) {
   const candidate = find('candidates', id);
   const runtimes = [observedOption];
-  if (candidate.machineId === 'local' && candidate.kind === 'installation') {
-    runtimes.push(...runtimeOptions.filter(([id]) => id === candidate.provider));
-  }
+  runtimes.push(...runtimeOptions.filter(([id]) => candidateRuntimes(candidate).includes(id)));
   const profile = candidate.draft ?? {name: providerLabels[candidate.provider], runtime: 'observed'};
   edit('人事入职档案',
     `<p class="description">${escape(name('machines', candidate.machineId))} · ${escape(providerLabels[candidate.provider])}</p>` +
@@ -1797,14 +1976,15 @@ function editCandidate(id) {
 }
 
 function approveCandidate(id) {
-  const {draft, reviewVersion} = find('candidates', id);
+  const {draft, reviewVersion, provider} = find('candidates', id);
   edit('确认入职', `<div class="card"><h3>${escape(draft.name)} · ${escape(roleLabels[draft.role])}</h3>
     <p>人格 ${escape(draft.personality)}</p><p>职责 ${escape(draft.scope)}</p>
     <p>小队 ${escape(name('teams', draft.teamId))}</p>
     <p>人物形象 ${escape(resolveAvatar(draft).name)}</p>
     <p>技能 ${escape(draft.skillIds.map(id => name('skills', id)).join('、') || '—')}</p>
     <p>MCP ${escape((draft.mcpServerIds ?? []).map(id => name('mcpServers', id)).join('、') || '—')}</p>
-    <p>权限 ${draft.runtime === 'observed' ? '仅采集' : draft.runtime === 'pi' ? '本机 Pi 执行' : draft.sandbox === 'workspace-write' ? '本机执行目录可写' : '本机只读执行'}</p></div>`,
+    <p>执行适配 ${escape(executionAdapterStatus({...draft, provider}).label)}</p>
+    <p>文件权限 ${draft.sandbox === 'workspace-write' ? '任务目录可写' : '只读'}</p></div>`,
     () => api('candidates/' + id + '/approve', {reviewVersion}), '批准入职');
 }
 
@@ -1812,9 +1992,13 @@ function pairMachine() {
   const {defaultAddress,port,tunnelHost} = data.collector;
   edit('配对新机器', input('机器名称', 'name', '', {required: true}) +
     input('目标机器可访问的接收地址', 'address', defaultAddress, {required:true,type:'url'}) +
+    select('客户端任务读取范围', 'taskAccess', [['none', '仅采集，不可读取任务'], ['all', '所有项目（只读）'],
+      ...(data.projects ?? []).map(project => ['project:' + project.id, project.name + '（只读）'])], 'none') +
     select('目标机器的终端','shell',[['sh','macOS / Linux'],['powershell','Windows PowerShell']],'sh'),
     async form => {
-      const {command,restart,loopback} = await api('machines',Object.fromEntries(form));
+      const {command,restart,loopback,code,expiresAt} = await api('machines', {...Object.fromEntries(form), pairingMode: 'code'});
+      el('pair-code').value = code;
+      el('pair-expiry').textContent = `有效期至 ${new Date(expiresAt).toLocaleTimeString()}，仅可使用一次。`;
       el('pair-command').value = command;
       el('pair-restart').textContent = restart;
       const address = new URL(form.get('address'));
@@ -1825,7 +2009,7 @@ function pairMachine() {
         : '';
       el('pair-copy-status').textContent = '';
       openModal('pairing');
-    }, '生成启动命令');
+    }, '生成配对码');
 }
 
 function editTask(id, conversationId = '', preset = {}) {
@@ -2091,10 +2275,12 @@ async function action(type, id, anchor) {
     case 'board-filter': boardFilterOpen = !boardFilterOpen; render(); break;
     case 'board-show-meta': boardShowMeta = !boardShowMeta; render(); break;
     case 'board-hide-empty': boardHideEmpty = !boardHideEmpty; render(); break;
+    case 'board-all-columns': boardShowAllColumns = !boardShowAllColumns; render(); break;
     case 'board-new-task': editTask('', '', {projectId:taskFilters.project}); break;
     case 'board-display':
       showBoardMenu(boardButton('board-show-meta', (boardShowMeta ? '隐藏' : '显示') + '卡片信息') +
-        boardButton('board-hide-empty', boardHideEmpty ? '显示空列' : '隐藏空列') + '<hr>' +
+        boardButton('board-all-columns', boardShowAllColumns ? '精简空扩展列' : '显示全部状态列') +
+        boardButton('board-hide-empty', boardHideEmpty ? '显示空列' : '隐藏所有空列') + '<hr>' +
         boardButton('board-run-list', '执行记录', '', 'clock') +
         boardButton('ws-projects', '查看项目') + boardButton('project-edit', '新建项目', '', 'plus'), anchor);
       break;
@@ -2148,6 +2334,7 @@ async function action(type, id, anchor) {
       if(hiddenTaskColumns.has(id))hiddenTaskColumns.delete(id);else hiddenTaskColumns.add(id);
       render();break;
     case 'agent-edit': editAgent(id); break;
+    case 'agent-permissions': editAgentPermissions(id); break;
     case 'scan-local': await api('discovery/scan', {}); break;
     case 'machine-pair': pairMachine(); break;
     case 'machine-revoke':
@@ -2264,6 +2451,8 @@ el('pair-copy').addEventListener('click', async () => {
 });
 el('pairing').addEventListener('close', () => {
   el('pair-command').value = '';
+  el('pair-code').value = '';
+  el('pair-expiry').textContent = '';
   el('pair-copy-status').textContent = '';
 });
 el('overview-dialog').addEventListener('close', () => {
@@ -2466,6 +2655,30 @@ el('editor').addEventListener('submit', async event => {
   } finally {
     if (submit && saveForm === handler) submit.disabled = false;
   }
+});
+
+function syncMultiSelect(group) {
+  if (!group) return;
+  const inputs = [...group.querySelectorAll('input[type="checkbox"]')];
+  const count = inputs.filter(item => item.checked).length;
+  const badge = group.querySelector('[data-multi-count]');
+  const clear = group.querySelector('[data-multi-clear]');
+  if (badge) {
+    badge.textContent = `已选 ${count} / ${inputs.length}`;
+    badge.dataset.active = String(count > 0);
+  }
+  if (clear) clear.hidden = count === 0;
+}
+el('editor').addEventListener('change', event => {
+  const group = event.target.closest?.('.multi-select');
+  if (group) syncMultiSelect(group);
+});
+el('editor').addEventListener('click', event => {
+  const clear = event.target.closest?.('[data-multi-clear]');
+  if (!clear) return;
+  const group = clear.closest('.multi-select');
+  group?.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = false; });
+  syncMultiSelect(group);
 });
 
 window.addEventListener('hashchange', route);

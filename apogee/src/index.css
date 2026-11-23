@@ -9,33 +9,34 @@
 }
 
 body {
-  font-family: 'Suisse Intl', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "PingFang SC", "Noto Sans SC", "Inter", "Avenir Next", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+  color: #252423;
+  background:
+    radial-gradient(ellipse at 22% -6%, #fdfbf5 0%, transparent 54%),
+    radial-gradient(ellipse at 92% 16%, #c8d8ce 0%, transparent 56%),
+    radial-gradient(ellipse at 76% 104%, #e5cec0 0%, transparent 60%),
+    linear-gradient(145deg, #e5e0dc, #d4cfc9);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+.symbio-serif {
+  font-family: "Instrument Serif", "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+}
+
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(24px); }
+  from { opacity: 0; transform: translateY(18px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fade-down {
-  from { opacity: 0; transform: translateY(-16px); }
+  from { opacity: 0; transform: translateY(-12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes fade-left {
-  from { opacity: 0; transform: translateX(-20px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes fade-right {
-  from { opacity: 0; transform: translateX(20px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-
 @keyframes fade-scale {
-  from { opacity: 0; transform: scale(0.92); }
+  from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
 }
 
@@ -44,13 +45,22 @@ body {
   to   { transform: scaleY(1); opacity: 1; }
 }
 
-.animate-fade-up    { animation: fade-up    0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.animate-fade-down  { animation: fade-down  0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.animate-fade-left  { animation: fade-left  0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.animate-fade-right { animation: fade-right 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.animate-fade-scale { animation: fade-scale 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-fade-up    { animation: fade-up    0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-fade-down  { animation: fade-down  0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-fade-scale { animation: fade-scale 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
 .animate-bar-grow {
-  animation: bar-grow 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: bar-grow 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up,
+  .animate-fade-down,
+  .animate-fade-scale,
+  .animate-bar-grow {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }

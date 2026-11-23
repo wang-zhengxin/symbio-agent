@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { fail, ids, string } from './input.js';
 import { receivesMentionEmail } from './mention-email.js';
+import { agentCanExecute } from '../public/agent-permissions.js';
 
 export function createTaskDiscussion(store, settings, enqueueReply) {
   const {get, list, put, event} = store;
@@ -12,7 +13,7 @@ export function createTaskDiscussion(store, settings, enqueueReply) {
     const accounts = list('user').filter(user => user.status === 'active').map(accountPerson);
     const members = accounts.length ? accounts : [operator()];
     return [...members, ...['human', 'agent'].flatMap(kind => list(kind)
-      .filter(person => kind === 'human' ? !members.some(member => member.name === person.name) : person.runtime !== 'observed')
+      .filter(person => kind === 'human' ? !members.some(member => member.name === person.name) : agentCanExecute(person))
       .map(({id, name}) => ({key:kind + ':' + id, name, kind})))];
   }
 

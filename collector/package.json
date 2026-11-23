@@ -1,6 +1,6 @@
 {
   "name": "symbio-agent-collector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Remote Agent discovery collector for Symbio Agent",
   "type": "module",
   "bin": {"symbio-agent-collector": "./office-collector.mjs"},

@@ -14,6 +14,7 @@
   <section class="account-gate" id="account-gate" aria-labelledby="account-heading">
     <div class="account-card">
       <div class="symbio-brand"><span class="symbio-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><strong>Symbio</strong></div>
+      <p class="account-tagline">人机共生 · 协同工作空间</p>
       <h1 id="account-heading">连接工作台</h1>
       <p id="account-description">正在检查登录状态…</p>
       <form id="account-form" class="fields" hidden>
@@ -104,14 +105,17 @@
   </dialog>
   <dialog class="modal" id="pairing" aria-labelledby="pairing-title">
     <div class="modal-layout">
-      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>远程采集启动命令</h2>
+      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>配对新电脑</h2>
         <button class="modal-close" type="button" data-modal-close aria-label="关闭机器配对"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
       <div class="modal-body fields">
-        <p>在目标机器终端运行。命令含有该机器的配对密钥，请仅交给该机器的操作者。</p>
+        <p>在新电脑执行下方 npm 命令，然后输入配对码。登录成功后自动开始采集；发现的 Agent 仍需人事审批。</p>
+        <label>一次性配对码<input id="pair-code" readonly spellcheck="false" aria-describedby="pair-expiry"></label>
+        <p id="pair-expiry" class="description"></p>
         <p id="pair-route" class="description" hidden></p>
         <label>首次启动<textarea id="pair-command" rows="4" readonly spellcheck="false"></textarea></label>
         <div class="actions"><button type="button" id="pair-copy">复制启动命令</button><span id="pair-copy-status" role="status"></span></div>
         <div><p>配对后重新启动</p><pre id="pair-restart"></pre></div>
+        <p class="description">也可安装 symbio-agent-collector@0.2.0 后使用 login、config、status、tasks list、tasks show、agents list、logout。任务查询以本次授权的范围为准。</p>
       </div>
     </div>
   </dialog>
