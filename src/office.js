@@ -9,7 +9,8 @@ import { avatarIds } from '../public/office-avatars.js';
 import { assignWorkstation } from './workstations.js';
 import { mcpFields } from './agent-capabilities.js';
 import { agentPermissionDefinitions, effectiveAgentPermissions, agentAuthorization, agentCanExecute } from '../public/agent-permissions.js';
-import { candidateRuntimes } from '../public/discovery-model.js';
+import { candidateRuntimes, runnerConnected } from '../public/discovery-model.js';
+import { normalizeGithubScope, snapshotGithubAccess } from './github-integration.js';
 
 const terminal = ['completed', 'failed', 'cancelled', 'interrupted'];
 const maxTokens = 1_000_000_000_000;
@@ -19,7 +20,7 @@ const field = (value, label, limit = 120) => string(value, label, limit);
 const note = (value, label, limit = 8000) => string(value, label, limit, true);
 
 export function createOffice(store, settings = createSettings(store), space) {
-  const { get, put, list, tx, event } = store;
+  const { get, put, remove, list, tx, event } = store;
   const discussion = createTaskDiscussion(store, settings, enqueueReply);
   const childrenOf = id => list('task').filter(task => task.parentId === id);
   function requireRecord(kind, id, label) {
@@ -59,6 +60,86 @@ export function createOffice(store, settings = createSettings(store), space) {
     });
   }
 
+  function deleteTeam(id) {
+    return tx(() => {
+      const team = requireRecord('team', id, '小组');
+      for (const agent of list('agent')) {
+        if (agent.teamId === id) put('agent', {...agent, teamId: null});
+      }
+      for (const human of list('human')) {
+        if (human.teamId === id) put('human', {...human, teamId: null});
+      }
+      for (const candidate of list('candidate')) {
+        if (candidate.draft?.teamId === id) {
+          put('candidate', {...candidate, draft: {...candidate.draft, teamId: null}});
+        }
+      }
+      const layout = get('setting', 'layout');
+      if (layout) {
+        const clearZones = group => group && Array.isArray(group.zones)
+          ? {...group, zones: group.zones.map(zone => zone.teamId === id ? {...zone, teamId: null} : zone)}
+          : group;
+        const draftChanged = layout.draft?.zones?.some(zone => zone.teamId === id);
+        const pubChanged = layout.published?.zones?.some(zone => zone.teamId === id);
+        if (draftChanged || pubChanged) {
+          put('setting', {...layout, draft: clearZones(layout.draft), published: clearZones(layout.published)});
+        }
+      }
+      if (get('budget', 'team:' + id)) remove('budget', 'team:' + id);
+      remove('team', id);
+      event('team.deleted', {id, name: team.name});
+      return {id, name: team.name};
+    });
+  }
+
+  function deleteSkill(id) {
+    return tx(() => {
+      const skill = requireRecord('skill', id, '技能');
+      for (const agent of list('agent')) {
+        if (agent.skillIds?.includes(id)) {
+          put('agent', {...agent, skillIds: agent.skillIds.filter(item => item !== id)});
+        }
+      }
+      for (const candidate of list('candidate')) {
+        if (candidate.draft?.skillIds?.includes(id)) {
+          put('candidate', {...candidate, draft: {...candidate.draft,
+            skillIds: candidate.draft.skillIds.filter(item => item !== id)}});
+        }
+      }
+      remove('skill', id);
+      event('skill.deleted', {id, name: skill.name});
+      return {id, name: skill.name};
+    });
+  }
+
+  function deleteMcpServer(id) {
+    return tx(() => {
+      const server = requireRecord('mcpServer', id, 'MCP 服务');
+      const stripMcp = record => {
+        const hasTop = record.mcpServerIds?.includes(id);
+        const hasAuth = record.authorization?.mcpServerIds?.includes(id);
+        if (!hasTop && !hasAuth) return null;
+        return {
+          ...record,
+          ...(hasTop ? {mcpServerIds: record.mcpServerIds.filter(item => item !== id)} : {}),
+          ...(hasAuth ? {authorization: {...record.authorization,
+            mcpServerIds: record.authorization.mcpServerIds.filter(item => item !== id)}} : {}),
+        };
+      };
+      for (const agent of list('agent')) {
+        const updated = stripMcp(agent);
+        if (updated) put('agent', updated);
+      }
+      for (const candidate of list('candidate')) {
+        const updatedDraft = candidate.draft ? stripMcp(candidate.draft) : null;
+        if (updatedDraft) put('candidate', {...candidate, draft: updatedDraft});
+      }
+      remove('mcpServer', id);
+      event('mcp.deleted', {id, name: server.name});
+      return {id, name: server.name};
+    });
+  }
+
   function agentProfile(input, runtimes, previous) {
     const teamId = input.teamId || null;
     if (teamId) requireRecord('team', teamId, '小组');
@@ -68,7 +149,7 @@ export function createOffice(store, settings = createSettings(store), space) {
     const runtime = choice(input.runtime ?? runtimes[0], runtimes, '运行器');
     const requested = input.authorization;
     if (requested !== undefined && (!requested || typeof requested !== 'object' || Array.isArray(requested) ||
-        Object.keys(requested).some(key => !['execution','sandbox','mcpServerIds','tools'].includes(key)) ||
+        Object.keys(requested).some(key => !['execution','sandbox','mcpServerIds','tools','github'].includes(key)) ||
         (requested.execution !== undefined && typeof requested.execution !== 'boolean'))) fail('管理员授权配置无效');
     for (const tools of [input.permissions, requested?.tools]) {
       if (tools !== undefined && (!tools || typeof tools !== 'object' || Array.isArray(tools) ||
@@ -82,6 +163,8 @@ export function createOffice(store, settings = createSettings(store), space) {
       sandbox:choice(requested?.sandbox ?? legacy.sandbox ?? prior.sandbox, ['read-only','workspace-write'], '文件授权'),
       mcpServerIds:ids(requested?.mcpServerIds ?? legacy.mcpServerIds ?? prior.mcpServerIds, 'MCP 服务'),
       tools:{...prior.tools, ...legacy.permissions, ...requested?.tools}};
+    if (requested?.github !== undefined) authorization.github = normalizeGithubScope(requested.github);
+    else if (prior.github) authorization.github = prior.github;
     for (const id of authorization.mcpServerIds) requireRecord('mcpServer', id, 'MCP 服务');
     const permissions = effectiveAgentPermissions({role, runtime, authorization});
     const mcpServerIds = authorization.execution && modelRuntimes.includes(runtime) ? authorization.mcpServerIds : [];
@@ -112,7 +195,7 @@ export function createOffice(store, settings = createSettings(store), space) {
   function saveAgent(input, actorRun) {
     const before = input.id ? requireRecord('agent', input.id, '员工') : null;
     if (input.expectedVersion !== undefined && input.expectedVersion !== before?.version) fail('员工配置已更新，请重新打开权限设置', 409);
-    if (input.candidateId) fail('扫描候选需要通过人事入职流程', 409);
+    if (input.candidateId && input.candidateId !== before?.candidateId) fail('请使用已接入的运行器绑定员工', 409);
     const runnerId = input.runnerCandidateId === undefined ? before?.runnerCandidateId : input.runnerCandidateId;
     let source;
     if (runnerId) {
@@ -120,7 +203,7 @@ export function createOffice(store, settings = createSettings(store), space) {
       const machine = requireRecord('machine', source.machineId, '采集机器');
       if (source.kind === 'process' || machine.status === 'revoked' ||
           (!source.present && runnerId !== before?.runnerCandidateId)) fail('请选择可用的运行器来源', 409);
-      if (!before && !modelRuntimes.includes(candidateRuntimes(source).at(-1))) fail('该来源需要先提交人事入职档案', 409);
+      if (!runnerConnected(source) && runnerId !== before?.runnerCandidateId) fail('请先在发现与接入中接入该运行器', 409);
     }
     const allowed = source ? candidateRuntimes(source) : before?.candidateId ? [before.runtime] : [...modelRuntimes, 'demo'];
     const profile = agentProfile(input, allowed, before);
@@ -133,6 +216,17 @@ export function createOffice(store, settings = createSettings(store), space) {
       field(profile.scope, '职责范围', 8000);
     }
     return tx(() => recordAgent(profile, before, actorRun));
+  }
+
+  // Public employee creation must bind an admitted source. Legacy internal seed
+  // profiles may retain their existing generic runtime without being rebound.
+  function saveManagedAgent(input, actorRun) {
+    const before = input.id ? requireRecord('agent', input.id, '员工') : null;
+    const runnerId = input.runnerCandidateId === undefined ? before?.runnerCandidateId : input.runnerCandidateId;
+    const runtime = input.runtime ?? before?.runtime ?? (runnerId ? candidateRuntimes(get('candidate', runnerId)).at(-1) : 'codex');
+    const keepLegacy = before && !before.runnerCandidateId && before.runtime === runtime;
+    if (runtime !== 'demo' && !runnerId && !keepLegacy) fail('请先接入运行器，再在智能体中绑定', 409);
+    return saveAgent({...input, runtime}, actorRun);
   }
 
   function stageCandidate(id, input, actorRun) {
@@ -169,7 +263,7 @@ export function createOffice(store, settings = createSettings(store), space) {
   function dismissCandidate(id) {
     return tx(() => {
       const candidate = requireRecord('candidate', id, '候选 Agent');
-      if (candidate.status === 'approved') fail('该候选已入职', 409);
+      if (runnerConnected(candidate)) fail('该运行器已接入，不能忽略', 409);
       if (candidate.status === 'dismissed') return candidate;
       const updated = put('candidate', {...candidate, status: 'dismissed', dismissedAt: time()});
       event('candidate.dismissed', {candidateId: id});
@@ -381,6 +475,10 @@ export function createOffice(store, settings = createSettings(store), space) {
     };
     if (projectSpace) run.projectSpace = projectSpace;
     if (replyToId) run.replyToId = replyToId;
+    if (run.kind === 'task') {
+      const access = snapshotGithubAccess(store, agent);
+      if (access) run.githubAccess = access;
+    }
     run.instructions = runtimeInstructions(run);
     put('run', run);
     event('run.queued', {status: run.status}, run);
@@ -692,7 +790,7 @@ export function createOffice(store, settings = createSettings(store), space) {
     };
   }
 
-  return {saveNamed, saveMcpServer, saveAgent, saveTask, taskStatus, taskPriority, enqueueTask, startRun, report, stop, finish,
+  return {saveNamed, saveMcpServer, deleteTeam, deleteSkill, deleteMcpServer, saveAgent, saveManagedAgent, saveTask, taskStatus, taskPriority, enqueueTask, startRun, report, stop, finish,
     setBudget, ledger, startConversation, updateConversation, snapshot, seed, requireRecord,
     stageCandidate, approveCandidate, dismissCandidate, taskDetail, commentTask, taskDiscussion, dispatchScheduled, setAgentPaused};
 }

@@ -2,10 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {openStore} from '../src/store.js';
 import {provisionDevelopmentSquad} from '../scripts/provision-development-squad.mjs';
+import {createDiscovery} from '../src/discovery.js';
 
 test('Development squad provisions five assigned staff with distinct desks and preserves existing profiles on rerun', async t => {
   const store = openStore(':memory:');
   t.after(() => store.close());
+  await assert.rejects(()=>provisionDevelopmentSquad(store), /先在发现与接入/);
+  assert.equal(store.list('agent').length,0);
+  const discovery=createDiscovery(store);
+  discovery.receive('local',{hostname:'test',platform:'darwin',installed:['codex'],processScan:'ok',processes:[]});
+  discovery.connect(store.list('candidate')[0].id);
   const first = await provisionDevelopmentSquad(store);
   assert.equal(first.team.name, '研发小队');
   assert.equal(first.agents.length, 5);

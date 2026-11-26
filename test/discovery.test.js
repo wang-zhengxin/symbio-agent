@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discoverProcesses } from '../collector/office-collector.mjs';
+import { discoverProcesses, processWindowTitles, withProcessWindowTitles } from '../collector/office-collector.mjs';
 import { openStore } from '../src/store.js';
 import { createOffice } from '../src/office.js';
 import { createDiscovery } from '../src/discovery.js';
@@ -27,6 +27,60 @@ test('Process scanner recognizes CLI wrappers without leaking arguments or dupli
   assert.deepEqual(result.map(({provider, pid}) => [provider, pid]), [['codex', 20], ['gemini', 24], ['pi', 25]]);
   assert.doesNotMatch(JSON.stringify(result), /private|token|\/cli/);
   assert.notEqual(discoverProcesses([{...rows[1], started: 'different'}])[0].instance, result[0].instance);
+});
+
+test('Instance names use executable basenames and titles from the matching PID without including command arguments', () => {
+  const processes = discoverProcesses([
+    {pid:1, ppid:0, started:'one', name:'/Applications/Antigravity.app/Contents/MacOS/Antigravity', command:'Antigravity --token secret-value'},
+    {pid:2, ppid:0, started:'two', name:'/usr/local/bin/agy', command:'agy --prompt private-text'},
+  ]);
+  assert.deepEqual(processes.map(row => row.processName), ['Antigravity','agy']);
+  const named = withProcessWindowTitles(processes, [
+    {pid:1,title:'  项目设计 — Antigravity  '}, {pid:1,title:'项目设计 — Antigravity'},
+    {pid:1,title:'第二个窗口'}, {pid:999,title:'其他应用内容'}, {pid:2,title:''},
+  ]);
+  assert.deepEqual(named[0].windowTitles, ['项目设计 — Antigravity','第二个窗口']);
+  assert.deepEqual(named[1].windowTitles, []);
+  assert.doesNotMatch(JSON.stringify(named), /secret-value|private-text|Applications|其他应用/);
+  assert.equal(named[0].instance, processes[0].instance);
+  const bounded = withProcessWindowTitles(processes, Array.from({length:12}, (_,i)=>({pid:1,title:'\u0000\u202e'+i+'x'.repeat(200)})));
+  assert.equal(bounded[0].windowTitles.length,8);
+  assert.ok(bounded[0].windowTitles.every(title=>title.length===160));
+  assert.doesNotMatch(bounded[0].windowTitles.join(''), /[\u0000\u202e]/);
+});
+
+test('Window title collection supports macOS and Windows and degrades safely if access is unavailable', async () => {
+  for(const platform of ['darwin','win32']) {
+    const titles = await processWindowTitles([{pid:12}], {platform, execute:async()=>({stdout:JSON.stringify([
+      {pid:12,title:'设计窗口'}, {pid:99,title:'其他进程'}, {pid:12,title:null},
+    ])})});
+    assert.deepEqual(titles,{status:'available',windows:[{pid:12,title:'设计窗口'}]});
+    assert.deepEqual(await processWindowTitles([{pid:12}], {platform, execute:async()=>{throw new Error('denied');}}),{status:'unavailable',windows:[]});
+  }
+  assert.deepEqual(await processWindowTitles([{pid:12}], {platform:'darwin', execute:async()=>({stdout:'{"status":"permission-required","windows":[]}'})}),{status:'permission-required',windows:[]});
+  assert.deepEqual(await processWindowTitles([{pid:12}], {platform:'linux', execute:()=>assert.fail('No window command on unsupported platforms')}),{status:'unsupported',windows:[]});
+  assert.deepEqual(await processWindowTitles([], {platform:'darwin', execute:()=>assert.fail('No process to query')}),{status:'not-requested',windows:[]});
+});
+
+test('Collectors persist fresh instance metadata, clear stale titles and accept old clients without names', t => {
+  const {discovery,store,machine}=setup(t);
+  const report = {...sample,windowTitleStatus:'available',processes:[{...sample.processes[0],processName:'codex',windowTitles:['方案讨论']}]};
+  discovery.receive(machine.id, report);
+  assert.equal(store.get('machine',machine.id).windowTitleStatus,'available');
+  const instance = store.list('candidate').find(row=>row.kind==='process');
+  assert.equal(instance.processName,'codex');assert.deepEqual(instance.windowTitles,['方案讨论']);
+  discovery.receive(machine.id, {...report,processScan:'unavailable',processes:[]});
+  assert.deepEqual(store.get('candidate',instance.id).windowTitles,['方案讨论']);
+  discovery.receive(machine.id, {...report,processes:[{...report.processes[0],windowTitles:[]}]});
+  assert.deepEqual(store.get('candidate',instance.id).windowTitles,[]);
+  discovery.receive(machine.id,sample);
+  assert.equal(store.get('machine',machine.id).windowTitleStatus,'unknown');
+  assert.equal(store.get('candidate',instance.id).processName,null);
+  assert.deepEqual(store.get('candidate',instance.id).windowTitles,[]);
+  for(const invalid of [{processName:'/private/token'}, {processName:'x'.repeat(81)}, {windowTitles:null},
+    {windowTitles:['\u0000bad']}, {windowTitles:Array(9).fill('window')}, {windowTitles:[{}]}]) {
+    assert.throws(()=>discovery.receive(machine.id,{...sample,processes:[{...sample.processes[0],...invalid}]}),{status:400});
+  }
 });
 
 function setup(t) {
@@ -61,34 +115,27 @@ test('Collectors are scoped to their pairing, scan outages do not mark processes
   assert.throws(() => discovery.receive(id, sample), {status: 401});
 });
 
-test('Discovered instances require a reviewed draft; remote workers cannot obtain execution access', t => {
+test('Connecting a remote runtime does not create staff and cannot grant remote execution', t => {
   const {discovery, office, store, machine} = setup(t);
   discovery.receive(machine.id, sample);
-  const candidate = discovery.snapshot().candidates[0];
+  const candidate = discovery.snapshot().candidates.find(row => row.kind !== 'process');
+  const profile = {name:'远程 Codex', personality:'严谨', scope:'代码审阅', runtime:'observed', runnerCandidateId:candidate.id};
+  assert.throws(() => office.saveManagedAgent(profile), {status:409});
+  discovery.connect(candidate.id);
   assert.equal(store.list('agent').length, 0);
-  assert.throws(() => office.approveCandidate(candidate.id, 1), {status: 409});
-  const profile = {name: '远程 Codex', personality: '严谨', scope: '代码审阅'};
-  assert.throws(() => office.stageCandidate(candidate.id, {...profile, runtime: 'codex'}), {status: 400});
-  assert.throws(() => office.stageCandidate(candidate.id, {...profile, personality: ' '}), {status: 400});
-
-  const hr = office.saveAgent({name: '人事', role: 'hr'});
-  const task = office.saveTask({title: '拟档', assigneeId: hr.id});
-  const run = office.startRun(office.enqueueTask(task.id).id);
-  const tools = companyTools(store, office, run);
-  assert.equal(tools.call({callId: 'draft-1', tool: 'office_review_candidate',
-    arguments: {...profile, candidateId: candidate.id}}).success, true);
-  assert.equal(store.list('agent').length, 1);
-  const review = office.stageCandidate(candidate.id, {...profile, sandbox: 'workspace-write'});
-  assert.throws(() => office.approveCandidate(candidate.id, review.reviewVersion - 1), {status: 409});
-  const employee = office.approveCandidate(candidate.id, review.reviewVersion);
+  const employee = office.saveManagedAgent(profile);
   assert.equal(employee.runtime, 'observed');
   assert.equal(employee.sandbox, 'read-only');
-  assert.throws(() => office.approveCandidate(candidate.id, review.reviewVersion), {status: 409});
-  assert.throws(() => office.saveAgent({...employee, candidateId: undefined, runtime: 'codex'}), {status: 400});
-  assert.throws(() => office.saveTask({title: '远程执行', assigneeId: employee.id}), {status: 409});
-  assert.throws(() => office.startConversation({topic: '例会', participantIds: [employee.id, hr.id]}), {status: 409});
+  assert.throws(() => office.saveManagedAgent({...employee,runtime:'codex'}), {status:400});
+  assert.throws(() => office.saveTask({title:'远程执行',assigneeId:employee.id}), {status:409});
   discovery.receive(machine.id, sample);
-  assert.equal(store.get('candidate', candidate.id).agentId, employee.id);
+  assert.equal(store.get('candidate',candidate.id).status,'connected');
+  const hr = office.saveAgent({name:'人事',role:'hr'});
+  const task = office.saveTask({title:'查看运行器',assigneeId:hr.id});
+  const run = office.startRun(office.enqueueTask(task.id).id);
+  const tools = companyTools(store,office,run);
+  assert.ok(!tools.definitions.some(tool => tool.name === 'office_review_candidate'));
+  assert.equal(tools.call({callId:'old-review',tool:'office_review_candidate',arguments:{}}).success,false);
 });
 
 test('A local Codex installation can be enrolled as a managed worker only after approval', t => {

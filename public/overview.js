@@ -1,3 +1,5 @@
+import { workstationLabel } from './office-presence.js';
+
 const assetRoot = '/office-assets/';
 const roomNames = {
   work: '研发协作区', meeting: '评审会议', ai: 'AI 运行区', lounge: '休息区',
@@ -70,18 +72,16 @@ export function officeOverview(snapshot, summary, {timeZone, now = new Date()} =
     (candidate.kind !== 'process' || machines.find(machine => machine.id === candidate.machineId)?.processScan === 'ok'))
     .map(candidate => candidate.id));
   const online = agents.filter(agent => workingIds.has(agent.id) || agent.runtime === 'demo' ||
-    localRuntimes.has(agent.runtime) || (agent.runtime === 'observed' && presentCandidates.has(agent.candidateId)));
+    localRuntimes.has(agent.runtime) || (agent.runtime === 'observed' && presentCandidates.has(agent.runnerCandidateId ?? agent.candidateId)));
   const onlineHumans = (snapshot.humans ?? []).filter(person => person.availability === 'online');
   const completeIds = day => new Set((summary?.completions ?? []).filter(event => calendarDate(event.time, timeZone) === day)
     .map(event => event.task_id)).size;
   const review = tasks.filter(task => task.status === 'review');
   const blocked = tasks.filter(task => task.status === 'blocked');
-  const hiring = candidates.filter(candidate => candidate.status === 'review' &&
-    machines.find(machine => machine.id === candidate.machineId)?.status !== 'revoked');
   const due = tasks.filter(task => !['done', 'cancelled', 'review', 'blocked'].includes(task.status) &&
     task.dueDate && task.dueDate <= tomorrow).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const attentionGroups = [
-    [...review.map(task => ({kind: 'review', task})), ...hiring.map(candidate => ({kind: 'hire', candidate}))],
+    review.map(task => ({kind: 'review', task})),
     blocked.map(task => ({kind: 'blocked', task})),
     due.map(task => ({kind: 'due', task})),
   ];
@@ -91,7 +91,7 @@ export function officeOverview(snapshot, summary, {timeZone, now = new Date()} =
     today, online, onlineHumans, active, taskRuns, liveConversations, taskCount: activeTasks.size,
     queued: runs.filter(run => run.kind === 'task' && run.status === 'queued').length,
     completed: completeIds(today), completedYesterday: completeIds(yesterday),
-    reviewCount: review.length + hiring.length, blockedCount: blocked.length, dueCount: due.length,
+    reviewCount: review.length, blockedCount: blocked.length, dueCount: due.length,
     attention,
     rooms: {
       work: agents.filter(agent => collaboratingIds.has(agent.id)),
@@ -205,7 +205,6 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
     const taskRef = task?.number ? name('projects', task.projectId) + ' · ' + task.number + ' 号任务' : '任务';
     const content = {
       review: ['任务验收', task?.title, '待人工确认交付', '去验收', 'task-view', task?.id],
-      hire: ['入职审批', candidate?.draft?.name ?? candidate?.provider, '已提交入职档案', '去审批', 'candidate-approve', candidate?.id],
       blocked: ['任务阻塞', task?.title, taskRef, '查看详情', 'task-view', task?.id],
       due: ['截止提醒', task?.title, '截止 ' + task?.dueDate, '查看任务', 'task-view', task?.id],
     }[entry.kind];
@@ -284,7 +283,7 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
         <div class="office-room-links" aria-label="办公室区域">${roomLinks}</div>`}
       </div>
       ${selected && !flat ? `<div class="office-selected" data-state="${selected.state}">
-        <i aria-hidden="true"></i><div><strong>${escape(selected.name)} · ${selected.label}</strong>
+        <i aria-hidden="true"></i><div><strong>${escape(selected.name)} · ${selected.label}${Number.isInteger(selected.seatIndex) ? ` · ${escape(workstationLabel(selected.seatIndex))}` : ''}</strong>
         <span>${escape([selected.title, selected.detail, !selected.title && !selected.detail && selected.avatar.name].filter(Boolean).join(' · '))}</span></div>
         ${selected.runId ? btn('run-view', '执行详情', selected.runId) : ''}
         ${selected.taskId ? btn('task-view', '任务', selected.taskId) : ''}
@@ -297,8 +296,8 @@ export function createOverview({escape, btn, number, localTime, name, find, empt
           <span class="working">● 工作中</span><span class="meeting">● 协作中</span><span>● 空闲</span><span class="warning">● 异常</span>
         </div>
         <div class="office-zoom" aria-label="办公室视图控制">
-          <button type="button" data-action="office-view" aria-pressed="${!flat}">${flat ? '3D' : '平面'}</button>
-          ${flat ? '' : `<button type="button" data-action="office-orbit" data-id="-1" aria-label="向左旋转">↶</button>
+          ${flat ? '<button type="button" data-action="office-view">重试 3D</button>' : `<button type="button" id="office-lighting-label" class="office-lighting-toggle" data-action="office-lighting-cycle" title="点击切换时段光影预览（实时 / 清晨 / 正午 / 黄昏 / 深夜）">☀ 实时光影</button>
+          <button type="button" data-action="office-orbit" data-id="-1" aria-label="向左旋转">↶</button>
           <button type="button" data-action="office-orbit" data-id="1" aria-label="向右旋转">↷</button>`}
           <button type="button" data-action="office-zoom-out" aria-label="缩小"${zoom === 80 ? ' disabled' : ''}>−</button>
           <button type="button" data-action="office-zoom-reset" aria-label="还原缩放">${zoom}%</button>

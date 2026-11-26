@@ -29,6 +29,8 @@ const aliases = new Map(Object.entries(providers).flatMap(([provider, names]) =>
   names.map(name => [name, provider])));
 const exec = promisify(execFile);
 const options = {timeout: 8000, maxBuffer: 16 * 1024 * 1024, windowsHide: true};
+const displayText = (value, limit) => typeof value === 'string'
+  ? value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, limit) : '';
 
 function executableName(path) {
   return path.split(/[\\/]/).at(-1)?.toLowerCase().replace(/\.(?:exe|cmd|bat|mjs|cjs|js|py)$/, '');
@@ -77,9 +79,47 @@ export function discoverProcesses(processes, excludedPid) {
     }
     if (excluded) continue;
     const identity = createHash('sha256').update(String(row.started)).digest('hex').slice(0, 16);
-    results.push({provider: row.provider, pid: row.pid, instance: `${row.pid}-${identity}`});
+    const executable = row.name || row.command?.match(/^\s*("[^"]*"|'[^']*'|\S+)/)?.[1]?.replace(/^["']|["']$/g, '');
+    const processName = displayText(executable?.split(/[\\/]/).at(-1), 80);
+    results.push({provider: row.provider, pid: row.pid, instance: `${row.pid}-${identity}`, ...(processName ? {processName} : {})});
   }
   return results.sort((a, b) => a.pid - b.pid).slice(0, 150);
+}
+
+// Window titles describe UI windows, not agent conversations. Limit collection
+// to discovered PIDs and use existing OS access without prompting for permission.
+export async function processWindowTitles(processes, {platform = process.platform, execute = exec} = {}) {
+  if (!['darwin', 'win32'].includes(platform)) return {windows:[], status:'unsupported'};
+  const pids = [...new Set(processes.map(row => row.pid).filter(pid => Number.isInteger(pid) && pid > 0))];
+  if (!pids.length) return {windows:[], status:'not-requested'};
+  try {
+    let output;
+    if (platform === 'darwin') {
+      const script = `ObjC.import('Cocoa'); ObjC.import('CoreGraphics');
+        ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]);
+        ObjC.bindFunction('CGWindowListCopyWindowInfo', ['id', ['unsigned int', 'unsigned int']]);
+        function run() {
+          if (!$.CGPreflightScreenCaptureAccess()) return JSON.stringify({status:'permission-required', windows:[]});
+          var pids = ${JSON.stringify(pids)};
+          var windows = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo(16, 0)) || [];
+          return JSON.stringify(windows.filter(function(row) {
+            return pids.indexOf(row.kCGWindowOwnerPID) !== -1 && row.kCGWindowLayer === 0 && row.kCGWindowName;
+          }).map(function(row) { return {pid: row.kCGWindowOwnerPID, title: row.kCGWindowName}; }));
+        }`;
+      output = await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script], {...options, timeout:3000});
+    } else {
+      output = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        `[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Process -Id ${pids.join(',')} -ErrorAction SilentlyContinue | Select-Object @{n='pid';e={$_.Id}},@{n='title';e={$_.MainWindowTitle}} | ConvertTo-Json -Compress`], {...options, timeout:3000});
+    }
+    const parsed = JSON.parse(output.stdout.replace(/^\uFEFF/, '').trim() || '[]');
+    if (parsed?.status === 'permission-required') return {windows:[], status:'permission-required'};
+    return {status:'available', windows:[parsed].flat().filter(row => row && pids.includes(row.pid) && typeof row.title === 'string')};
+  } catch { return {windows:[], status:'unavailable'}; }
+}
+
+export function withProcessWindowTitles(processes, windows) {
+  return processes.map(row => ({...row, windowTitles:[...new Set(windows.filter(window => window.pid === row.pid)
+    .map(window => displayText(window.title, 160)).filter(Boolean))].slice(0, 8)}));
 }
 
 async function readProcesses() {
@@ -157,7 +197,11 @@ export async function installedProviders(options) {
 
 export async function scanAgents({excludeSelf = true} = {}) {
   const [installed, scan] = await Promise.all([installedProviders(), readProcesses()
-    .then(rows => ({processes: discoverProcesses(rows, excludeSelf ? process.pid : undefined), processScan: 'ok'}))
+    .then(async rows => {
+      const processes = discoverProcesses(rows, excludeSelf ? process.pid : undefined);
+      const titles = await processWindowTitles(processes);
+      return {processes:withProcessWindowTitles(processes, titles.windows), processScan:'ok', windowTitleStatus:titles.status};
+    })
     .catch(() => ({processes: [], processScan: 'unavailable'}))]);
   return {hostname: hostname(), platform: process.platform, installed, ...scan};
 }
@@ -253,8 +297,9 @@ export function parseArgs(args) {
   return {positional, options};
 }
 
-const help = `Symbio Agent Collector 0.2.0
-用法：symbio-agent-collector <命令>
+const help = `Symbio CLI 0.2.0
+用法：symbio <命令>
+别名：symbio-cli；旧命令 symbio-agent-collector 仍可使用，配置与登录共用。
   login [接收地址] [--code 配对码] [--allow-http] [--run]
   logout                         清除本地登录，保留配置（后台撤销可令凭据失效）
   status | whoami [--json]        查询机器连接、授权和采集状态
@@ -265,7 +310,7 @@ const help = `Symbio Agent Collector 0.2.0
   run [--once]                   持续采集或只上报一次
   tasks list [--status 状态] [--project 项目ID] [--limit 数量] [--offset 偏移量] [--json]
   tasks show <任务编号或ID> [--json]   查看任务及子任务
-  agents list [--json]            按运行器查看本机发现项、实例数与入职状态
+  agents list [--json]            按运行器查看本机发现项、实例数与接入状态
   join | install <接收地址>       兼容旧版配对密钥
 配置文件：~/.agent-office/collector.json，可用 OFFICE_COLLECTOR_CONFIG 指定路径。
 任务读取范围由后台配对时授权；客户端不会自动入职或执行远程任务。`;

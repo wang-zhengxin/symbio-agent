@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { providers } from '../collector/office-collector.mjs';
 import { choice, fail, integer, string } from './input.js';
 import { taskStates } from './settings.js';
-import { discoveryGroups } from '../public/discovery-model.js';
+import { discoveryGroups, runnerConnected } from '../public/discovery-model.js';
 
 const known = Object.keys(providers);
 const expiry = 40_000;
@@ -13,6 +13,8 @@ function validateReport(input) {
   const hostname = string(input.hostname, '主机名', 160);
   const platform = choice(input.platform, ['darwin', 'linux', 'win32', 'freebsd', 'openbsd', 'sunos', 'aix'], '系统');
   const processScan = choice(input.processScan, ['ok', 'unavailable'], '进程扫描状态');
+  const windowTitleStatus = choice(input.windowTitleStatus ?? 'unknown',
+    ['unknown','not-requested','available','permission-required','unsupported','unavailable'], '窗口标题采集状态');
   if (!Array.isArray(input.installed) || input.installed.length > known.length ||
       !Array.isArray(input.processes) || input.processes.length > 150) fail('采集清单无效');
   if (processScan === 'unavailable' && input.processes.length) fail('进程扫描结果无效');
@@ -26,15 +28,23 @@ function validateReport(input) {
     const provider = choice(row.provider, known, '运行器');
     const pid = integer(row.pid, '进程 ID', 1, 2_147_483_647);
     if (typeof row.instance !== 'string' || !new RegExp('^' + pid + '-[a-f0-9]{16}$').test(row.instance)) fail('进程标识无效');
+    const processName = row.processName == null ? null : string(row.processName, '进程名称', 80);
+    if (processName && /[/\\\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(processName)) fail('进程名称无效');
+    if (row.windowTitles !== undefined && (!Array.isArray(row.windowTitles) || row.windowTitles.length > 8)) fail('窗口标题清单无效');
+    const windowTitles = [...new Set((row.windowTitles ?? []).map(value => {
+      const title = string(value, '窗口标题', 160);
+      if (/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(title)) fail('窗口标题无效');
+      return title;
+    }))];
     // One onboarding candidate per machine/provider, including CLIs not found on PATH.
     if (!found.has('install:' + provider)) found.set('install:' + provider, {provider, kind: 'runtime'});
-    found.set('process:' + provider + ':' + row.instance, {provider, kind: 'process', pid});
+    found.set('process:' + provider + ':' + row.instance, {provider, kind: 'process', pid, processName, windowTitles});
   }
-  return {hostname, platform, processScan, found};
+  return {hostname, platform, processScan, windowTitleStatus, found};
 }
 
 export function createDiscovery(store) {
-  const {get, put, list, tx, event} = store;
+  const {get, put, list, remove, tx, event} = store;
   const publicMachine = ({tokenHash, pairingHash, ...machine}) => machine;
 
   // Keep historical employee links and reviewed drafts. Unreviewed PIDs become
@@ -59,6 +69,26 @@ export function createDiscovery(store) {
     });
   }
   normalizeCandidates();
+
+  // Preserve explicit bindings made before runtime connection and employee creation were separated.
+  const boundIds = new Set(list('agent').flatMap(agent => [agent.runnerCandidateId, agent.candidateId]).filter(Boolean));
+  const boundSources = list('candidate').filter(row => row.kind !== 'process' && boundIds.has(row.id) && !runnerConnected(row));
+  if (boundSources.length) tx(() => {
+    for (const row of boundSources) put('candidate', {...row, connectionStatus:'connected', connectedAt:now()});
+  });
+
+  function connect(id) {
+    return tx(() => {
+      const candidate = get('candidate', id);
+      const machine = candidate && get('machine', candidate.machineId);
+      if (!candidate || candidate.kind === 'process') fail('请选择运行器接入，进程仅供诊断', 409);
+      if (!machine || machine.status !== 'online' || !candidate.present) fail('来源离线或未检测到运行器，请重新扫描后接入', 409);
+      if (runnerConnected(candidate)) return candidate;
+      const updated = put('candidate', {...candidate, status:'connected', connectionStatus:'connected', connectedAt:now()});
+      event('runtime.connected', {candidateId:id, machineId:machine.id, provider:candidate.provider});
+      return updated;
+    });
+  }
 
   function issueMachine(input, pairing = false) {
     const name = string(input.name, '机器名称', 100);
@@ -153,8 +183,38 @@ export function createDiscovery(store) {
     });
   }
 
+  function removalState(machine) {
+    if (machine.local || machine.id === 'local') return {allowed:false, reason:'本机不能删除'};
+    const sourceIds = new Set(list('candidate').filter(row => row.machineId === machine.id).map(row => row.id));
+    const usesMachine = agent => sourceIds.has(agent?.runnerCandidateId || agent?.candidateId);
+    const bound = list('agent').filter(usesMachine);
+    if (bound.length) return {allowed:false, reason:`仍有 ${bound.length} 位员工使用，请先在智能体中改绑运行器`, boundCount:bound.length};
+    if (list('run').some(run => ['queued','running','stopping'].includes(run.status) && usesMachine(run.agent))) {
+      return {allowed:false, reason:'仍有排队或执行中的任务使用此机器，请先结束任务'};
+    }
+    const grace = Math.max(expiry, (machine.heartbeatSeconds ?? 10) * 3000 + 10_000);
+    if (machine.status === 'online' || (machine.seenAt && Date.now() - Date.parse(machine.seenAt) <= grace)) {
+      return {allowed:false, reason:'请先停止客户端采集并等待离线，最近上报尚未过期'};
+    }
+    return {allowed:true, reason:'机器离线且没有员工使用，可删除配对与扫描记录'};
+  }
+
+  function deleteMachine(id, actor) {
+    return tx(() => {
+      const machine = get('machine', id);
+      if (!machine) fail('接入机器不存在', 404);
+      const state = removalState(machine);
+      if (!state.allowed) fail(state.reason, 409);
+      const candidates = list('candidate').filter(row => row.machineId === id);
+      for (const row of candidates) remove('candidate', row.id);
+      remove('machine', id);
+      event('machine.deleted', {machineId:id, name:machine.name, removedSources:candidates.length, operator:actor?.username});
+      return {id, name:machine.name};
+    });
+  }
+
   function receive(machineId, input) {
-    const {hostname, platform, processScan, found} = validateReport(input);
+    const {hostname, platform, processScan, windowTitleStatus, found} = validateReport(input);
     const heartbeatSeconds = integer(input.heartbeatSeconds ?? 10, '心跳间隔', 5, 3600);
     const local = machineId === 'local';
     return tx(() => {
@@ -162,7 +222,7 @@ export function createDiscovery(store) {
       if (!local && (!before || before.status === 'revoked')) fail('配对凭据无效', 401);
       const stamp = now();
       const machine = put('machine', {...before, id: machineId, name: before?.name ?? '本机',
-        hostname, platform, processScan, heartbeatSeconds, local, status: 'online', seenAt: stamp,
+        hostname, platform, processScan, windowTitleStatus, heartbeatSeconds, local, status: 'online', seenAt: stamp,
         createdAt: before?.createdAt ?? stamp});
       if (before?.status !== 'online' || before.processScan !== processScan) {
         event('machine.status', {machineId, status: machine.status, processScan});
@@ -203,9 +263,9 @@ export function createDiscovery(store) {
   }
 
   function snapshot() {
-    return {machines: list('machine').map(publicMachine), candidates: list('candidate')};
+    return {machines: list('machine').map(machine => ({...publicMachine(machine), removal:removalState(machine)})), candidates: list('candidate')};
   }
 
-  return {issueMachine, issuePairing: input => issueMachine(input, true), exchangeCode, clientStatus, readTasks,
-    authenticate, receive, revoke, sweep, snapshot};
+  return {connect, issueMachine, issuePairing: input => issueMachine(input, true), exchangeCode, clientStatus, readTasks,
+    authenticate, receive, revoke, deleteMachine, sweep, snapshot};
 }

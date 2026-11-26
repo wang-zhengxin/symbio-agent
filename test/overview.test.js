@@ -77,31 +77,36 @@ test('Idle actors sit in their own seats across roster and activity changes', ()
   assert.equal(placeOfficeActors([b,a]).get(a.key),initial.get(a.key));
 });
 
-test('Idle breaks wait for the longer interval, use separate spots and end or cancel on activity', () => {
+test('Idle breaks stagger independently, use separate spots and end or cancel on activity', () => {
   const stroll = createOfficeStrolls(() => .5);
   const idle = new Set(['a','b']);
   const step = minutes => stroll(idle,minutes*60_000);
   assert.equal(step(0).size,0);
-  assert.equal(step(44.99).size,0);
-  assert.equal(step(45).size,1);
-  assert.equal(step(45).size,1);
-  assert.equal(step(45.99).size,1);
-  const visits = step(46);
-  assert.equal(visits.size,2);
-  assert.ok([...visits.values()].every(visit => visit.position.seated));
-  assert.notEqual(visits.get('a').position,visits.get('b').position);
-  assert.equal(step(52.49).size,2);
-  idle.delete('a');
-  assert.equal(step(52.49).has('a'),false);
-  assert.equal(step(52.5).size,0);
-  idle.add('a');
-  assert.equal(step(53).size,0);
-  assert.equal(step(97.5).has('b'),true);
-  assert.equal(step(97.5).has('a'),false);
+  assert.equal(step(15.74).size,0);
+  // Even when two actors share the same initial deadline, only one departs and the other is rescheduled independently.
+  const first = step(15.75);
+  assert.equal(first.size,1);
+  const firstKey = [...first.keys()][0];
+  const otherKey = firstKey === 'a' ? 'b' : 'a';
+  assert.equal(step(20.5).size,1);
+  assert.equal(step(21.99).size,1);
+  // First actor finishes break at 15.75 + 6.25 = 22.0 min.
+  assert.equal(step(22).size,0);
+  // Other actor was rescheduled to 15.75 + 17 = 32.75 min.
+  assert.equal(step(32.74).size,0);
+  const second = step(32.75);
+  assert.equal(second.size,1);
+  assert.ok(second.has(otherKey));
+  assert.ok(second.get(otherKey).position.seated);
+  // Becoming busy cancels the active break immediately.
+  idle.delete(otherKey);
+  assert.equal(step(33).has(otherKey),false);
 });
 
 test('Break seats match the furniture and give priority to face-to-face conversations', () => {
-  const stroll = createOfficeStrolls(() => .5);
+  // Give 4 actors distinct staggered initial deadlines so they arrive one by one while earlier ones are still resting.
+  const values = [.05,.15,.25,.35, .1,.5,.1, .1,.5,.1, .1,.5,.1, .1,.5,.1];
+  const stroll = createOfficeStrolls(() => values.shift() ?? .5);
   const idle = new Set(['a','b','c','d']);
   const meeting = placeOfficeActors([
     {key:'speaker',mode:'face_to_face',sessionId:'chat',order:0},
@@ -109,35 +114,36 @@ test('Break seats match the furniture and give priority to face-to-face conversa
   ]);
   const reserved = [...meeting.values()];
   stroll(idle,0,reserved);
-  for (const minute of [45,46,47]) stroll(idle,minute*60_000,reserved);
-  const visits = stroll(idle,48*60_000,reserved);
+  let visits = new Map();
+  for (const minute of [3, 6, 9, 12]) visits = stroll(idle,minute*60_000,reserved);
   const seated = [...visits.values()].filter(visit => visit.position.seated);
-  assert.equal(seated.length,2);
+  assert.ok(seated.length >= 2);
   for (const {position} of seated) {
     assert.ok(loungeSeats.some(seat => seat.x === position.x && seat.z === position.z && seat.angle === position.angle));
     assert.ok(!reserved.some(seat => seat.x === position.x && seat.z === position.z));
   }
   const resting = [...visits].find(([,visit]) => visit.position.seated);
-  const next = stroll(idle,49*60_000,[...reserved,resting[1].position]);
+  const next = stroll(idle,13*60_000,[...reserved,resting[1].position]);
   assert.equal(next.has(resting[0]),false);
 });
 
-test('Independent random deadlines and durations stay staggered after a long pause', () => {
-  const values = [.1,.9,.6, 0,.2,0,.1,.5, .5, 0,.2,0,.9,.5];
+test('Independent random deadlines never trigger a group wave after a long pause', () => {
+  const values = [.05,.45,.85, 0,.2,0,.1, .3,.7, .5, 0,.2,0,.9, .4,.8];
   const stroll = createOfficeStrolls(() => values.shift() ?? .5);
   const idle = new Set(['a','b','c']);
   stroll(idle,0);
-  assert.equal(stroll(idle,32*60_000).size,0);
-  const first = stroll(idle,33*60_000);
+  // Actor a's independent deadline is 1.5 + 0.05 * 28.5 = 2.925 min; b & c are much later.
+  assert.equal(stroll(idle,2.9*60_000).size,0);
+  const first = stroll(idle,3*60_000);
+  assert.equal(first.size,1);
   assert.ok(first.has('a'));
-  assert.equal(first.get('a').returnAt,38.5*60_000);
-  const resumed = stroll(idle,90*60_000);
+  // After a long background pause (t = 120 min), all timers are overdue:
+  // only 1 person departs and the others are rescheduled independently into the future (no group wave).
+  const resumed = stroll(idle,120*60_000);
   assert.equal(resumed.size,1);
-  const visit = [...resumed.values()][0];
-  assert.equal(visit.returnAt,99.5*60_000);
-  assert.equal(stroll(idle,90*60_000).size,1);
-  assert.equal(stroll(idle,90.99*60_000).size,1);
-  assert.equal(stroll(idle,91*60_000).size,2);
+  assert.equal(stroll(idle,121*60_000).size,1);
+  assert.equal(stroll(idle,122*60_000).size,1);
+  assert.equal(stroll(idle,123*60_000).size,1);
 });
 
 

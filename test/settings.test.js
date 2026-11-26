@@ -98,3 +98,77 @@ test('Inbox distinguishes relevant statuses and leaves events newer than the dis
   assert.equal(settings.inbox().events.length, 1);
   assert.equal(store.audit()[0].type, 'settings.updated');
 });
+
+test('Deleting labels and custom properties strips task references and logs audit events', t => {
+  const {store, settings, office} = setup(t);
+  const keepLabel = settings.saveCatalogue('label', {name: '保留标签', color: 'green'});
+  const dropLabel = settings.saveCatalogue('label', {name: '待删标签', color: 'red'});
+  const keepProp = settings.saveCatalogue('property', {name: '保留字段', type: 'text'});
+  const dropProp = settings.saveCatalogue('property', {name: '待删字段', type: 'select', options: ['A', 'B']});
+  const task = office.saveTask({
+    title: '清理测试',
+    labelIds: [keepLabel.id, dropLabel.id],
+    properties: {[keepProp.id]: 'ok', [dropProp.id]: 'A'},
+  });
+  settings.removeCatalogue('label', dropLabel.id);
+  settings.removeCatalogue('property', dropProp.id);
+  assert.equal(store.get('label', dropLabel.id), undefined);
+  assert.equal(store.get('property', dropProp.id), undefined);
+  const updatedTask = store.get('task', task.id);
+  assert.deepEqual(updatedTask.labelIds, [keepLabel.id]);
+  assert.deepEqual(updatedTask.properties, {[keepProp.id]: 'ok'});
+  const auditTypes = store.audit().map(event => event.type);
+  assert.equal(auditTypes.filter(type => type === 'catalogue.deleted').length, 2);
+  assert.throws(() => settings.removeCatalogue('label', dropLabel.id), {status: 404});
+});
+
+test('Deleting teams, skills, and MCP servers cascades cleanup across agents, humans, layout, and budgets', async t => {
+  const {createWorkspace} = await import('../src/workspace.js');
+  const {store, office} = setup(t);
+  const workspace = createWorkspace(store);
+  const team = office.saveNamed('team', {name: '核心小队'});
+  const keepSkill = office.saveNamed('skill', {name: '保留技能'});
+  const dropSkill = office.saveNamed('skill', {name: '待删技能'});
+  const mcp = office.saveMcpServer({name: '本地检索', transport: 'http', url: 'https://example.com/mcp', tools: 'search', enabled: true});
+  const agent = office.saveAgent({
+    name: '小王',
+    runtime: 'codex',
+    teamId: team.id,
+    skillIds: [keepSkill.id, dropSkill.id],
+    authorization: {execution: true, sandbox: 'read-only', mcpServerIds: [mcp.id]},
+  });
+  const human = workspace.saveHuman({name: '李四', title: '产品', teamId: team.id});
+  const currentLayout = workspace.snapshot().layout;
+  const assignedDraft = {...currentLayout.draft, zones: currentLayout.draft.zones.map((z, idx) => idx === 0 ? {...z, teamId: team.id} : z)};
+  workspace.saveLayout({revision: currentLayout.revision, draft: assignedDraft}, true);
+  office.setBudget({scope: 'team', targetId: team.id, limit: 50_000});
+
+  office.deleteTeam(team.id);
+  office.deleteSkill(dropSkill.id);
+  office.deleteMcpServer(mcp.id);
+
+  assert.equal(store.get('team', team.id), undefined);
+  assert.equal(store.get('budget', 'team:' + team.id), undefined);
+  assert.equal(store.get('skill', dropSkill.id), undefined);
+  assert.equal(store.get('mcpServer', mcp.id), undefined);
+
+  const afterAgent = store.get('agent', agent.id);
+  assert.equal(afterAgent.teamId, null);
+  assert.deepEqual(afterAgent.skillIds, [keepSkill.id]);
+  assert.deepEqual(afterAgent.mcpServerIds, []);
+  assert.deepEqual(afterAgent.authorization.mcpServerIds, []);
+
+  assert.equal(store.get('human', human.id).teamId, null);
+  const afterLayout = workspace.snapshot().layout;
+  assert.equal(afterLayout.draft.zones[0].teamId, null);
+  assert.equal(afterLayout.published.zones[0].teamId, null);
+
+  const auditTypes = store.audit().map(event => event.type);
+  assert.ok(auditTypes.includes('team.deleted'));
+  assert.ok(auditTypes.includes('skill.deleted'));
+  assert.ok(auditTypes.includes('mcp.deleted'));
+
+  assert.throws(() => office.deleteTeam(team.id), {status: 404});
+  assert.throws(() => office.deleteSkill(dropSkill.id), {status: 404});
+  assert.throws(() => office.deleteMcpServer(mcp.id), {status: 404});
+});

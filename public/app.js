@@ -1,9 +1,11 @@
 import { settingsGroups, settingsTitles, navigationIcon, taskMatchesView } from './navigation.js';
-import { discoveryGroups, agentRunnerChoices, selectedRunnerChoice, candidateRuntimes, candidateExecutionStatus } from './discovery-model.js';
-import { agentPermissionDefinitions, agentAuthorization, executionAdapterStatus, agentCanExecute } from './agent-permissions.js';
+import { discoveryGroups, agentRunnerChoices, selectedRunnerChoice, candidateExecutionStatus, runnerConnected, runnerBoundAgents } from './discovery-model.js';
+import { agentPermissionDefinitions, agentAuthorization, executionAdapterStatus, agentCanExecute, fileAuthorizationDescription } from './agent-permissions.js';
+import { githubGrants, githubModes, githubOperations, githubScope } from './github-policy.js';
 import { createOverview, officeOverview } from './overview.js';
 import { createWorkspaceView } from './workspace.js';
 import { avatarFields, officeAvatars, resolveAvatar } from './office-avatars.js';
+import { collectorQuickStart, collectorUsageGuide } from './collector-guide.js';
 import { createOfficeStrolls, officePresence, placeOfficeActors } from './office-presence.js';
 
 const el = id => document.getElementById(id);
@@ -40,13 +42,16 @@ const eventLabels = {
   'runtime.input': '提交任务输入', 'runtime.first_output': '收到首段可见文本', 'runtime.finished': '运行器返回',
   'space.delivery': '归档项目交付', 'space.conflict': '发布版本冲突', 'space.published': '发布项目文件', 'space.returned': '退回项目交付',
   'task.saved': '保存任务', 'agent.saved': '保存员工', 'budget.updated': '更新预算',
+  'github.operation': 'GitHub 操作',
+  'machine.deleted': '删除接入机器',
 };
 let data, page = 'overview', feed, selectedRun, refreshTimer, refreshPending, saveForm, noticeTimer;
 let refreshAgain = false;
 let settingsPage = 'workspace', inboxData, auditData;
 let signedInUser, usersData, accountMode, reloadingAccount = false;
 let overviewData, overviewDetails, officeZoom = 100, fullscreenMode, fullscreenReturnHash;
-let officeScene, officeModule, figurePreview, officeFlat = false, office3dUnavailable = false;
+let officeScene, officeModule, figurePreview, officeFlat = false, office3dUnavailable = false, officeLightMode = 0;
+const officeLightModes = [null, 6.2, 12.5, 17.5, 22.5];
 let sceneActors = [], selectedActor;
 const officeStrolls = createOfficeStrolls();
 let fullTaskBoard = false, taskScopePage = 'all';
@@ -57,7 +62,7 @@ let boardMenuAnchor, boardSubmenuAnchor;
 const boardScopes = {all: '全部', assigned: '已分配', unassigned: '未分配', project: '项目任务'};
 const priorityLabels = {none: '无', low: '低', medium: '中', high: '高', urgent: '紧急'};
 const propertyLabels = {text: '文本', number: '数字', select: '单选'};
-const notificationLabels = {review: '任务待验收', failures: '执行失败或中断', hiring: '入职档案待确认', machines: '采集机器离线',
+const notificationLabels = {review: '任务待验收', failures: '执行失败或中断', hiring: '历史入职通知', machines: '采集机器离线',
   mentions: '任务评论中的 @ 提及'};
 const memberPages = new Set(['tasks', 'settings', 'inbox', 'help']);
 const memberSettings = new Set(['account', 'preferences', 'notifications']);
@@ -108,6 +113,8 @@ const badge = (status, label = labels[status] ?? status) =>
   `<span class="badge ${escape(status)}">${escape(label)}</span>`;
 const btn = (action, label, id = '', primary = false) =>
   `<button type="button" data-action="${escape(action)}" data-id="${escape(id)}"${primary ? ' class="primary"' : ''}>${escape(label)}</button>`;
+const dangerBtn = (action, label, id = '') =>
+  `<button type="button" data-action="${escape(action)}" data-id="${escape(id)}" class="danger-btn">${escape(label)}</button>`;
 const actions = (...items) => `<div class="actions">${items.join('')}</div>`;
 const empty = text => `<p class="empty">${escape(text)}</p>`;
 const section = (title, desc, controls = '') =>
@@ -151,8 +158,20 @@ function renderOfficeScene() {
     officeScene ??= factory(host,officeStrolls);
     officeScene.mount(host);
     if (host.hasAttribute('data-layout-preview')) sceneActors = officePresence(data,officeOverview(data,null,timeOptions()));
-    const {visible,total} = officeScene.update(sceneActors,officeZoom,selectedActor,data.workstationCount);
+    const isDecorate = host.dataset.layoutPreview === 'decorate';
+    const activeDecor = isDecorate ? workspaceView.activeOfficeDecor() : {
+      mode: data.officeMode === 'custom' ? 'custom' : 'default',
+      floors: data.officeFloors ?? [],
+      items: data.officeItems ?? [],
+      walls: data.officeWalls ?? [],
+      rugs: data.officeRugs ?? [],
+    };
+    const {visible,total} = officeScene.update(sceneActors,officeZoom,selectedActor,data.workstationCount,
+      {hour: officeLightModes[officeLightMode], timeZone: timeOptions().timeZone},
+      activeDecor.items, activeDecor.walls, activeDecor.rugs, activeDecor.mode, activeDecor.floors);
     officeScene.updateZones(host.dataset.layoutPreview === 'space' ? workspaceView.layoutSceneZones() : []);
+    officeScene.updateDesks(host.dataset.layoutPreview === 'seats' ? workspaceView.layoutSceneDesks() : []);
+    officeScene.setDesignMode(isDecorate ? workspaceView.layoutDesignConfig() : null);
     const capacity = el('office-scene-capacity');
     if (capacity && visible < total) {
       capacity.hidden = false;
@@ -955,7 +974,10 @@ function namedCard(kind, record) {
   return `<div class="resource-card-slot"><article class="card resource-card" tabindex="0">
     <div class="resource-card-head">
       <h3>${escape(record.name)}</h3>
-      ${btn(kind + '-edit', '编辑', record.id)}
+      <div class="resource-card-actions">
+        ${btn(kind + '-edit', '编辑', record.id)}
+        ${['team', 'skill'].includes(kind) ? dangerBtn(kind + '-delete', '删除', record.id) : ''}
+      </div>
     </div>
     <p class="resource-card-desc">${escape(record.description || '暂无说明')}</p>
     ${hasFooter ? `<footer class="resource-card-foot">
@@ -974,24 +996,29 @@ function candidatePresence(candidate) {
   return candidate.kind === 'process' ? badge('running', '检测到进程') : badge('idle', '已安装');
 }
 
-function discoveryActions(item, hasHr) {
-  if (!item || !['discovered', 'review'].includes(item.status)) return '';
-  return actions(btn('candidate-review', item.draft ? '编辑档案' : '填写档案', item.id),
-    item.status === 'review' ? btn('candidate-approve', '确认入职', item.id, true) : '',
-    item.status === 'discovered' && hasHr ? btn('candidate-assign', '交给人事', item.id) : '',
-    btn('candidate-dismiss', '忽略', item.id));
+function discoveryActions(item) {
+  if (!item || item.kind === 'process') return '';
+  if (runnerConnected(item)) return btn('goto-agents', '管理智能体');
+  return actions(btn('candidate-connect', item.status === 'dismissed' ? '重新接入' : '接入运行器', item.id, true),
+    ['discovered','review'].includes(item.status) ? btn('candidate-dismiss', '忽略', item.id) : '');
 }
 
 function discoveryInstances(group) {
   const count = group.processes.length;
+  const missingTitle = {'permission-required':'系统尚未授权后台读取窗口标题',
+    unsupported:'此系统暂不采集窗口标题', unavailable:'窗口标题采集暂不可用'}[group.machine.windowTitleStatus] ?? '暂无可读窗口标题';
   const summary = group.processState === 'offline' ? `来源离线 · 上次检测 ${count} 个实例`
     : group.processState === 'unknown' ? `状态未知 · 上次检测 ${count} 个实例` : `${count} 个运行实例`;
   if (!count) return `<span class="description">${escape(summary)}</span>`;
   return `<details class="discovery-instances" data-discovery-details="${escape(group.key)}">
     <summary class="disclosure-chevron" data-discovery-focus="${escape(group.key)}">${escape(summary)}</summary>
-    <p class="description">进程仅供诊断，不作为员工或入职候选。未关联的进程不代表平台任务。</p>
-    <ul>${group.processes.map(instance => `<li><code>PID ${instance.pid}</code>
+    <p class="description">优先显示窗口标题，否则显示进程名称。一个进程可有多个窗口；窗口标题不等同 Agent 会话名。进程仅供诊断。</p>
+    <ul>${group.processes.map(instance => `<li>
+      <strong class="discovery-instance-name">${escape(instance.windowTitles?.[0] || instance.processName || (providerLabels[group.provider] ?? group.provider) + ' 实例')}</strong>
+      ${(instance.windowTitles ?? []).slice(1).map(title => `<span class="discovery-instance-name">${escape(title)}</span>`).join('')}
+      <span class="description">${instance.windowTitles?.length ? '窗口标题' : instance.processName ? '进程名称' : '运行器名称'}${instance.windowTitles?.length && instance.processName ? ' · ' + escape(instance.processName) : ''}</span><code>PID ${instance.pid}</code>
       <span>${escape(instance.agentId ? name('agents', instance.agentId) + ' · 历史关联' : '未关联会话')}</span>
+      ${instance.windowTitles?.length ? '' : `<span class="description">${missingTitle}</span>`}
       <time>${escape(localDateTime(instance.lastSeenAt))}</time></li>`).join('')}</ul>
   </details>`;
 }
@@ -999,41 +1026,42 @@ function discoveryInstances(group) {
 function discovery() {
   const machines = data.machines ?? [];
   const groups = discoveryGroups(data.candidates, machines);
-  const pending = groups.reduce((count, group) => count + group.legacyReviews.length +
-    (['discovered', 'review'].includes(group.candidate?.status) ? 1 : 0), 0);
+  const pending = groups.filter(group => group.candidate && !runnerConnected(group.candidate) && group.candidate.status !== 'dismissed').length;
   const collector = data.collector;
   const endpoint = collector?.listening
     ? `采集端口 ${collector.port}（${collector.protocol.toUpperCase()}）${collector.loopback ? ' · 仅回环' : ''}`
     : '远程接收端未启动';
-  const hasHr = data.agents.some(agent => agent.role === 'hr' && agent.runtime === 'codex');
-  return section('发现与入职', '按机器和运行器发现可用能力，入职审批后创建员工。运行进程合并展示，仅用于诊断。',
-    actions(btn('scan-local', '立即扫描本机'), collector?.listening ? btn('machine-pair', '配对新机器', '', true) : '')) +
+  return section('发现与接入', '扫描发现 → 接入运行器 → 在智能体中创建员工并绑定。接入不创建员工或工位，同一运行器可供多个员工使用。',
+    actions(btn('scan-local', '立即扫描本机'), collector?.listening ? btn('machine-pair', '接入新机器', '', true) : '')) +
     `<section class="panel"><div class="card-head"><h2>发现的运行器</h2><span class="badge">${groups.length} 个运行器 · ${pending} 项待处理</span></div>
-    <p class="description">发现状态来自机器扫描；执行适配与员工配置使用同一标准。“已接入执行”表示平台已有执行接口，不代表已登录、已入职或已获任务授权。</p>
+    <p class="description">接入状态表示运行器是否已加入公司资源池；执行适配表示平台能否调用。未适配来源接入后仅供观察，不会因接入自动获得执行能力。人格、岗位、技能和权限在智能体中设置。</p>
     ${groups.length ? `<div class="table"><table class="discovery-runtimes">
-      <thead><tr><th>运行器</th><th>来源</th><th>发现状态</th><th>执行适配</th><th>运行实例</th><th>人事状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>运行器</th><th>来源</th><th>发现状态</th><th>执行适配</th><th>运行实例</th><th>接入状态</th><th>绑定员工</th><th>操作</th></tr></thead>
       <tbody>${groups.map(group => {
         const item = group.candidate;
         const status = item?.status;
+        const connected = runnerConnected(item);
+        const bound = runnerBoundAgents(group, data.agents, data.candidates);
         const adapter = candidateExecutionStatus(item ?? {provider:group.provider, machineId:group.machine.id});
         return `<tr><td><strong>${escape(providerLabels[group.provider] ?? group.provider)}</strong></td>
           <td>${escape(group.machine.name)}</td><td>${item ? candidatePresence(item) : badge('idle', '检测到运行器')}</td>
           <td title="${escape(adapter.detail)}">${badge(adapter.ready ? 'done' : 'idle', adapter.label)}</td>
           <td>${discoveryInstances(group)}</td>
-          <td>${badge(status === 'review' ? 'review' : status === 'approved' ? 'done' : status === 'dismissed' ? 'offline' : 'todo',
-            {review:'待确认', approved:'已入职', dismissed:'已忽略', discovered:'待建档'}[status] ?? '待扫描')}
-          ${group.legacyReviews.length ? `<details class="discovery-instances" data-discovery-details="legacy:${escape(group.key)}">
-            <summary class="disclosure-chevron">${group.legacyReviews.length} 份历史档案待确认</summary>
-            ${group.legacyReviews.map(row => `<div class="discovery-legacy"><p>${escape(row.draft?.name ?? '历史进程档案')}</p>${discoveryActions(row, hasHr)}</div>`).join('')}
-          </details>` : ''}</td>
-          <td>${discoveryActions(item, hasHr) || (item?.agentId && find('agents', item.agentId) ? btn('agent-edit', '查看员工', item.agentId) : '<span class="description">—</span>')}</td></tr>`;
+          <td>${badge(connected ? 'done' : status === 'dismissed' ? 'offline' : 'todo', connected ? '已接入' : status === 'dismissed' ? '已忽略' : '待接入')}</td>
+          <td>${bound.length ? `<details class="discovery-instances" data-discovery-details="employees:${escape(group.key)}">
+            <summary class="disclosure-chevron" data-discovery-focus="employees:${escape(group.key)}">${bound.length} 位员工</summary>
+            <ul>${bound.map(agent => `<li>${btn('agent-edit', agent.name, agent.id)}</li>`).join('')}</ul>
+          </details>` : '<span class="description">未绑定</span>'}</td>
+          <td>${discoveryActions(item) || '<span class="description">—</span>'}</td></tr>`;
       }).join('')}</tbody></table></div>` : empty('暂无可用运行器，可扫描本机或配对新机器。')}
     </section>
     <section class="panel"><div class="card-head"><h2>采集机器</h2>
-      <a class="symbio-download-link" href="/downloads/office-collector.mjs" download>↓ 下载独立脚本</a></div>
+      <div class="actions">${collector?.listening ? btn('machine-pair', '接入新机器', '', true) : ''}
+      <a class="symbio-download-link" href="/downloads/office-collector.mjs" download>↓ 下载独立脚本</a></div></div>
     <p class="description">${escape(endpoint)}${collector?.packageSpec ? ' · npm ' + escape(collector.packageSpec) : ''}</p>
+    ${collectorQuickStart(collector, escape)}
     ${machines.length ? `<div class="table"><table>
-      <thead><tr><th>机器</th><th>系统</th><th>状态</th><th>任务读取范围</th><th>最近上报</th><th></th></tr></thead>
+      <thead><tr><th>机器</th><th>系统</th><th>状态</th><th>任务读取范围</th><th>最近上报</th><th>操作</th></tr></thead>
       <tbody>${machines.map(machine => `<tr><td>${escape(machine.name)}${machine.hostname ? ' · ' + escape(machine.hostname) : ''}</td>
         <td>${escape(machine.platform ?? '—')}</td>
         <td>${badge(machine.status, machineLabels[machine.status])} ${machine.processScan === 'unavailable' && machine.status === 'online'
@@ -1041,7 +1069,10 @@ function discovery() {
         <td>${escape(machine.local ? '本机' : machine.taskAccess === 'all' ? '所有项目（只读）'
           : machine.taskAccess?.startsWith('project:') ? name('projects', machine.taskAccess.slice(8)) + '（只读）' : '仅采集')}</td>
         <td>${machine.seenAt ? escape(localDateTime(machine.seenAt)) : machine.pairingExpiresAt && Date.parse(machine.pairingExpiresAt) <= Date.now() ? '配对码已过期，请撤销后重新生成' : '—'}</td>
-        <td>${!machine.local && machine.status !== 'revoked' ? btn('machine-revoke', '撤销配对', machine.id) : ''}</td></tr>`).join('')}</tbody></table></div>` : empty('正在等待本机首次扫描。')}
+        <td>${!machine.local ? `<div class="actions">${machine.status !== 'revoked' ? btn('machine-revoke', '撤销配对', machine.id) : ''}
+          <button type="button" data-action="machine-delete" data-id="${escape(machine.id)}" ${machine.removal?.allowed ? '' : 'disabled'}>删除机器</button></div>
+          <small class="description machine-removal-reason">${escape(machine.removal?.reason ?? '正在确认删除条件')}</small>` : '<span class="description">本机</span>'}</td></tr>`).join('')}</tbody></table></div>` : empty('正在等待本机首次扫描。')}
+    ${collectorUsageGuide(collector, escape)}
     </section>`;
 }
 
@@ -1124,9 +1155,46 @@ function cataloguePanel(kind) {
       ? badge('label-' + item.color, '标签') : escape(propertyLabels[item.type])}</td>
       <td>${escape(item.description || '—')}</td><td>${item.archived ? '已归档' : '使用中'}</td>
       <td>${actions(btn(kind + '-edit', '编辑', item.id),
-        btn(kind + '-archive', item.archived ? '恢复' : '归档', item.id))}</td></tr>`).join('')}</tbody></table></div>`
+        btn(kind + '-archive', item.archived ? '恢复' : '归档', item.id),
+        dangerBtn(kind + '-delete', '删除', item.id))}</td></tr>`).join('')}</tbody></table></div>`
     : empty(isLabel ? '创建标签后，可在任务上选择并按标签筛选。' : '创建文本、数字或单选字段，让任务记录你关心的信息。');
   return settingsPanel(title, content, btn(kind + '-edit', isLabel ? '新建标签' : '新建字段', '', true));
+}
+
+function githubSettings() {
+  const integration = data.github;
+  if (!integration) return settingsPanel('GitHub', empty('工作台尚未加载 GitHub 集成。'));
+  if (!integration.account) return settingsPanel('GitHub',
+    '<p class="description">连接工作台服务账号的 GitHub CLI 登录，再选择智能体可以使用的仓库。</p>',
+    btn('github-connect', '连接本机 gh', '', true));
+
+  const repositories = integration.repositories;
+  const account = settingsPanel('GitHub', rows([
+    ['连接状态', '已连接 · 本机 GitHub CLI'], ['授权账号', '@' + integration.account.login],
+    ['上次验证', localDateTime(integration.verifiedAt)],
+  ]), actions(btn('github-connect', '验证连接'), btn('github-disconnect', '断开连接')));
+  const allowed = repositories.length ? `<div class="table"><table>
+    <thead><tr><th>仓库</th><th>GitHub 访问</th><th>工作区允许的操作</th><th>操作</th></tr></thead>
+    <tbody>${repositories.map(repo => `<tr><td><a class="space-link" href="https://github.com/${escape(repo.fullName)}" target="_blank" rel="noopener noreferrer">${escape(repo.fullName)}</a></td>
+    <td>${repo.private ? '私有' : '公开'} · ${repo.disabled ? '已禁用' : repo.archived ? '已归档' : repo.canPush ? '可推送' : '可读取'}</td>
+    <td>${escape(repo.operations.map(operation => githubOperations[operation]).join('、') || '暂停访问')}</td>
+    <td>${actions(btn('github-repository', '编辑范围', repo.id), btn('github-repository-remove', '移除授权', repo.id))}</td></tr>`).join('')}</tbody></table></div>`
+    : empty('添加仓库后，受调度的智能体会继承其授权范围。');
+  return account + settingsPanel('授权仓库', allowed,
+    actions(btn('settings-section', '查看操作记录', 'audit'), btn('github-repository', '添加仓库', '', true)));
+}
+
+function auditTarget(event) {
+  const {payload} = event;
+  if (event.type.startsWith('github.')) {
+    const task = find('tasks', event.task_id);
+    const trail = [payload.name, payload.account && '@' + payload.account, payload.operator,
+      event.agent_id && (find('agents', event.agent_id)?.name || event.agent_id),
+      event.task_id && (task ? [taskKey(task), task.title].filter(Boolean).join(' ') : event.task_id),
+      payload.resource?.number && '#' + payload.resource.number, payload.resource?.branch, payload.resource?.sha?.slice(0, 12)];
+    return escape(trail.filter(Boolean).join(' · '));
+  }
+  return escape(payload.name || settingsTitles[payload.section] || name('machines', payload.machineId || payload.target));
 }
 
 function settingsBody(section = settingsPage) {
@@ -1186,20 +1254,27 @@ function settingsBody(section = settingsPage) {
         ? `<div class="resource-grid">${data.skills.map(skill => namedCard('skill', skill)).join('')}</div>`
         : empty('暂无技能。可从技能目录下载，或上传 SKILL.md。'),
         `<span class="badge">${data.skills.length} 项技能 · 悬停查看完整内容</span>`);
+    case 'integrations': return githubSettings();
     case 'mcp':
       return settingsPanel('MCP 服务', data.mcpServers.length
           ? `<div class="resource-grid">${data.mcpServers.map(server => `<div class="resource-card-slot"><article class="card resource-card" tabindex="0">
-            <div class="resource-card-head"><h3>${escape(server.name)}</h3>${btn('mcp-edit', '编辑', server.id)}</div>
+            <div class="resource-card-head">
+              <h3>${escape(server.name)}</h3>
+              <div class="resource-card-actions">
+                ${btn('mcp-edit', '编辑', server.id)}
+                ${dangerBtn('mcp-delete', '删除', server.id)}
+              </div>
+            </div>
             <p class="resource-card-desc">${escape(server.tools.join('、') || '暂无工具列表')}</p>
             <footer class="resource-card-foot"><span class="resource-card-source">${server.transport === 'stdio' ? 'stdio' : 'Streamable HTTP'} · ${server.enabled ? '已启用' : '已停用'}</span></footer>
           </article></div>`).join('')}</div>`
           : empty('暂无 MCP 服务。添加后可在员工档案中授权。'), btn('mcp-edit', '添加 MCP 服务', '', true));
     case 'audit':
       return settingsPanel('最近 100 条管理变更', auditData?.length ? `<div class="table"><table>
-        <thead><tr><th>时间</th><th>操作</th><th>对象</th></tr></thead>
+        <thead><tr><th>时间</th><th>操作</th><th>对象</th><th>结果</th></tr></thead>
         <tbody>${auditData.map(event => `<tr><td>${escape(localDateTime(event.time))}</td>
-          <td>${escape(managementEventName(event))}</td><td>${escape(event.payload.name ||
-            settingsTitles[event.payload.section] || name('machines', event.payload.machineId || event.payload.target))}</td></tr>`).join('')}</tbody></table></div>`
+          <td>${escape(managementEventName(event))}</td><td>${auditTarget(event)}</td>
+          <td>${{success:'成功', denied:'拒绝', failed:'失败'}[event.payload.outcome] || '—'}</td></tr>`).join('')}</tbody></table></div>`
         : empty(auditData ? '暂无变更记录。' : '正在加载变更记录…'));
   }
 }
@@ -1245,12 +1320,20 @@ function managementEventName(event) {
   return ({
     'settings.updated': '保存设置', 'catalogue.saved': '保存分类配置',
     'catalogue.archived': event.payload.archived ? '归档分类配置' : '恢复分类配置',
-    'agent.saved': '保存员工', 'team.saved': '保存小队', 'skill.saved': '保存技能', 'mcp.saved':'保存 MCP 服务',
+    'catalogue.deleted': event.payload.kind === 'property' ? '删除自定义字段' : '删除任务标签',
+    'agent.saved': '保存员工', 'team.saved': '保存小队', 'team.deleted': '删除小队',
+    'skill.saved': '保存技能', 'skill.deleted': '删除技能',
+    'mcp.saved': '保存 MCP 服务', 'mcp.deleted': '删除 MCP 服务',
+    'github.connected': '连接 GitHub', 'github.verified': '验证 GitHub 登录', 'github.disconnected': '断开 GitHub',
+    'github.repository_saved': '保存 GitHub 仓库授权', 'github.repository_removed': '移除 GitHub 仓库授权',
+    'github.operation': event.payload.operation || 'GitHub 操作',
     'machine.paired': '创建机器配对', 'machine.revoked': '撤销机器配对',
     'candidate.reviewed': '提交入职档案', 'candidate.approved': '确认入职',
     'candidate.dismissed': '忽略候选', 'budget.updated': '更新预算',
     'human.saved': '保存真人员工', 'schedule.saved': '保存日程', 'agent.dispatch': '更新 Agent 派发',
     'layout.saved': '保存布局草稿', 'layout.published': '发布办公室布局',
+    'layout.workstations_added': '扩建 3D 工位', 'layout.workstations_removed': '缩减 3D 工位',
+    'layout.furniture_saved': '保存 3D 自由布置',
     'account.registered': '注册账户', 'account.updated': '更新账户权限', 'account.email-bound': '绑定账户邮箱',
   })[event.type] ?? event.type;
 }
@@ -1259,7 +1342,7 @@ function settingsScreen() {
   if (!data.settings) return empty('请重启工作台服务以加载设置。');
   const groups = isMember() ? {'个人设置':{account:settingsTitles.account, preferences:settingsTitles.preferences, notifications:settingsTitles.notifications}} : settingsGroups;
   const groupName = Object.entries(groups).find(([,sections]) => Object.hasOwn(sections,settingsPage))?.[0] || '设置';
-  const icons = {account:'person',preferences:'settings',notifications:'inbox',workspace:'office',people:'team',users:'person',workflow:'tasks',labels:'project',properties:'layout',mcp:'monitor',audit:'tasks'};
+  const icons = {account:'person',preferences:'settings',notifications:'inbox',workspace:'office',people:'team',users:'person',workflow:'tasks',labels:'project',properties:'layout',integrations:'project',mcp:'monitor',audit:'tasks'};
   return `<div class="settings-layout settings-workspace">
       <nav class="settings-nav" aria-label="设置导航"><h1>${navigationIcon('layout')}设置</h1>${Object.entries(groups).map(([group, sections]) =>
         `<div class="settings-nav-group"><p>${escape(group)}</p>${Object.entries(sections).map(([key, label]) =>
@@ -1288,13 +1371,13 @@ function inboxScreen() {
     const candidate = find('candidates', event.payload.candidateId);
     const titles = {'task.status': '任务待验收', 'run.failed': '执行失败', 'run.interrupted': '执行中断',
       'task.mention': '评论中的 @ 提及', 'task.schedule_failed': '定时派发失败',
-      'candidate.reviewed': '入职档案待确认', 'machine.status': '采集机器离线'};
+      'candidate.reviewed': '历史入职档案', 'machine.status': '采集机器离线'};
     const target = task?.title ?? (candidate ? providerLabels[candidate.provider]
       : run ? name('agents', run.agentId) : name('machines', event.payload.machineId));
     const details = event.type === 'task.mention' ? btn('task-discussion-view', '查看评论', event.task_id + ':' + event.payload.id)
       : run ? btn('run-view', '查看执行', run.id)
       : task ? btn('task-view', '查看任务', task.id)
-      : candidate?.status === 'review' ? btn('candidate-approve', '查看档案', candidate.id)
+      : candidate?.status === 'review' ? btn('goto-discovery', '查看运行器')
       : event.type === 'machine.status' ? btn('goto-discovery', '查看机器') : '';
     return `<article class="card inbox-entry${event.seq > inboxData.seenThrough ? ' unread' : ''}">
       <div><h3>${escape(titles[event.type])} · ${escape(target)}</h3>
@@ -1522,7 +1605,8 @@ async function refresh() {
     if (!officeScene && !isMember()) {
       const actors = officePresence(snapshot,officeOverview(snapshot,null,timeOptions()));
       const idle = new Set(actors.filter(actor => !actor.fixedSeat && actor.state === 'idle' && Number.isInteger(actor.seatIndex)).map(actor => actor.key));
-      const reserved = [...placeOfficeActors(actors,snapshot.workstationCount).values()]
+      const reserved = [...placeOfficeActors(actors,snapshot.workstationCount,snapshot.officeItems ?? [],
+        snapshot.officeMode ?? 'default',snapshot.officeFloors ?? []).values()]
         .filter(position => position.area === 'lounge');
       officeStrolls(idle,performance.now(),reserved);
     }
@@ -1616,6 +1700,19 @@ function edit(title, html, handler, submit = '保存') {
   saveForm = handler;
   openModal('dialog');
   renderAvatarPreview();
+}
+
+const githubEndpoint = 'settings/integrations/github/';
+
+function editGithubRepository(id) {
+  const {repositories, version} = data.github;
+  const repo = repositories.find(row => row.id === id);
+  if (id && !repo) return;
+  edit(repo ? '编辑 GitHub 仓库授权' : '添加 GitHub 仓库',
+    (repo ? `<p>${escape(repo.fullName)}</p>` : input('仓库（owner/repository）', 'fullName', '', {required:true})) +
+    select('允许的操作', 'operations', Object.entries(githubOperations), repo?.operations ?? ['read'], {multiple:true}),
+    form => api(githubEndpoint + 'repository', {id:repo?.id, fullName:repo?.fullName ?? form.get('fullName'),
+      operations:form.getAll('operations'), expectedVersion:version}));
 }
 
 function editNamed(kind, id) {
@@ -1853,7 +1950,6 @@ async function uploadSpaceFile(projectId) {
 }
 
 const runtimeOptions = [['codex', '本机 Codex（新会话）'], ['pi', '本机 Pi（新会话）'], ['demo', '演示运行器']];
-const observedOption = ['observed', '发现与采集来源（未绑定执行适配器）'];
 
 function agentFields(agent, runtimes, required = false, runnerChoices) {
   return input('姓名', 'name', agent.name, {required: true}) +
@@ -1863,7 +1959,7 @@ function agentFields(agent, runtimes, required = false, runnerChoices) {
     area('人格', 'personality', agent.personality, required) +
     area('职责范围', 'scope', agent.scope, required) +
     select('技能（多选）', 'skillIds', options('skills'), agent.skillIds, {multiple: true}) +
-    (runnerChoices ? select('Agent / 运行方式', 'runnerChoice', runnerChoices.map(row => [row.value,
+    (runnerChoices ? '<p class="description">选择已接入的运行器，可供多个员工共用。缺少来源时请先到「发现与接入」接入；历史绑定保持不变。</p>' + select('绑定运行器', 'runnerChoice', runnerChoices.map(row => [row.value,
       `${providerLabels[row.provider] ?? runtimeLabels[row.provider] ?? row.provider}${row.machine ? ' · ' + row.machine : ''}（${(row.adapter ?? executionAdapterStatus(row)).label}）`]),
       selectedRunnerChoice(agent, runnerChoices))
       + '<input type="hidden" name="runtime" value="' + escape(agent.runtime ?? 'codex') + '"><p id="runner-capability" class="description" role="status"></p>'
@@ -1873,13 +1969,11 @@ function agentFields(agent, runtimes, required = false, runnerChoices) {
         [server.id, server.name + (server.enabled ? '' : '（已停用）')]), agentAuthorization(agent).mcpServerIds, {multiple:true})
       : '') +
     (runtimes.some(([runtime]) => runtime !== 'observed') ? input('模型（可选，留空沿用本机配置）', 'model', agent.model) : '') +
-    (runtimes.some(([runtime]) => runtime === 'codex' || runtime === 'demo')
-      ? select('文件授权', 'sandbox', [['read-only', '只读'], ['workspace-write', '允许任务工作目录写入']], agentAuthorization(agent).sandbox)
-      : '') +
-    '<p class="description">适配状态与管理员授权分别管理。未适配能力可在权限设置中预先授权，当前不生效；人事与财务岗位的文件操作上限为只读。</p>';
+    select('文件授权', 'sandbox', [['read-only', '只读'], ['workspace-write', '允许任务工作目录写入']], agentAuthorization(agent).sandbox) +
+    '<p id="file-authorization-status" class="description" role="status"></p>';
 }
 
-function updateFilePermission(runnerChoices) {
+function updateFilePermission(runnerChoices, agent) {
   const {runtime, sandbox, runnerChoice, model, role} = el('editor').elements;
   const mcpField = el('editor').querySelector('[data-multi-field="mcpServerIds"]');
   const update = () => {
@@ -1887,10 +1981,11 @@ function updateFilePermission(runnerChoices) {
       const selected = runnerChoices.find(row => row.value === runnerChoice.value);
       runtime.value = selected.runtime;
       el('runner-capability').textContent = selected.runtime === 'observed'
-        ? (selected.adapter ?? executionAdapterStatus(selected)).detail + ' 管理员可在权限设置中保存授权，未适配的能力暂不生效。'
+        ? (selected.adapter ?? executionAdapterStatus(selected)).detail + ' 可在下方保存文件授权，未适配的能力暂不生效。'
         : selected.runtime === 'demo' ? '演示运行器不调用真实模型。' : '执行适配器已接入；是否允许执行由管理员授权决定，使用本机登录配置启动新会话。';
     }
-    if (sandbox) { sandbox.disabled = ['pi','observed'].includes(runtime.value) || ['hr','finance'].includes(role?.value); if (sandbox.disabled) sandbox.value = 'read-only'; }
+    if (sandbox) el('file-authorization-status').textContent = fileAuthorizationDescription({...agent,
+      runtime:runtime.value, role:role.value, authorization:{...agentAuthorization(agent), sandbox:sandbox.value}});
     if (model) { model.disabled = runtime.value === 'observed'; model.closest('label').hidden = model.disabled; }
     if (mcpField) {
       mcpField.disabled = !['codex','pi'].includes(runtime.value);
@@ -1900,6 +1995,7 @@ function updateFilePermission(runnerChoices) {
   runtime.addEventListener('change', update);
   runnerChoice?.addEventListener('change', update);
   role?.addEventListener('change', update);
+  sandbox?.addEventListener('change', update);
   update();
 }
 
@@ -1911,92 +2007,90 @@ function editAgent(id) {
       const chosen = choices.find(row => row.value === form.get('runnerChoice'));
       const authorization = agentAuthorization(id ? agent : {role:form.get('role')});
       const mcpField = el('editor').querySelector('[data-multi-field="mcpServerIds"]');
-      const payload = {...Object.fromEntries(form), id, runtime:chosen.runtime, runnerCandidateId:chosen.candidateId ?? '',
+      const payload = {...Object.fromEntries(form), id, expectedVersion:agent.version,
+        runtime:chosen.runtime, runnerCandidateId:chosen.candidateId ?? '',
         skillIds:form.getAll('skillIds'), authorization:{...authorization,
           sandbox:form.has('sandbox') ? form.get('sandbox') : authorization.sandbox,
           mcpServerIds:mcpField && !mcpField.disabled
             ? form.getAll('mcpServerIds') : authorization.mcpServerIds}};
-      if (!id && chosen.runtime === 'observed') return api('candidates/' + chosen.candidateId + '/review', payload);
       return api('agents', payload);
     });
-  updateFilePermission(choices);
-  if (!id) {
-    const selector = el('editor').elements.runnerChoice;
-    const updateAction = () => { el('editor').querySelector('[type="submit"]').textContent = choices.find(row => row.value === selector.value)?.runtime === 'observed' ? '提交入职档案' : '保存'; };
-    selector.addEventListener('change', updateAction); updateAction();
-  }
+  updateFilePermission(choices, agent);
 }
 
 function editAgentPermissions(id) {
   const agent = find('agents', id);
   if (!agent) return;
   const authorization = agentAuthorization(agent);
+  const scope = githubScope(agent);
+  const repositories = (data.github?.repositories ?? []).map(repo => [repo.id, repo.fullName]);
+  const readGithubScope = form => ({mode:form.get('githubMode'), repositoryIds:form.getAll('githubRepositories'),
+    operations:form.getAll('githubOperations')});
   const adapter = executionAdapterStatus(agent);
   const toolNote = definition => !definition.roles.includes(agent.role) ? '待岗位许可：当前岗位不具备此管理能力'
     : !definition.runtimes.includes(agent.runtime) ? '待适配：当前执行适配器不支持此工具' : '已适配，勾选后可在新任务中使用';
   edit(agent.name + ' · 权限设置',
     `<section class="agent-adapter-status"><h3>执行适配状态 · ${escape(adapter.label)}</h3><p class="description">${escape(adapter.detail)}</p></section>` +
-    '<p class="description">以下是管理员授权，可独立保存。实际生效范围 = 已接入能力 ∩ 岗位上限 ∩ 管理员授权。修改仅影响新排队的任务。</p>' +
+    '<p class="description">文件和公司工具授权应用于新排队的任务。GitHub 授权收紧后，后续工具调用立即按新范围检查。</p>' +
     `<fieldset class="agent-permission-options"><legend>管理员授权</legend>
       <label class="checkbox"><input name="execution" type="checkbox"${authorization.execution ? ' checked' : ''}>允许平台执行任务</label>
       <p id="execution-authorization-status" class="description" role="status"></p></fieldset>` +
     select('文件写入授权', 'sandbox', [['read-only','只读'],['workspace-write','允许任务工作目录写入']], authorization.sandbox) +
-    `<p class="description">${!adapter.ready ? '待适配：当前来源尚不能执行文件操作。' : agent.runtime === 'pi' ? '待适配：当前 Pi 适配器关闭内置文件与终端工具。' : ['hr','finance'].includes(agent.role) ? '岗位限制：人事与财务的文件操作上限为只读。' : '写入能力已适配，授权范围仅限任务工作目录。'} 写入授权可保存，实际执行仍受上述能力与岗位限制。</p>` +
+    '<p id="file-authorization-status" class="description" role="status"></p>' +
     `<fieldset class="agent-permission-options"><legend>公司工具授权</legend>${agentPermissionDefinitions.map(definition =>
       `<label class="checkbox"><input type="checkbox" name="permission-${definition.key}"${authorization.tools[definition.key] ? ' checked' : ''}>${escape(definition.label)}
       <span class="description">${escape(toolNote(definition))}</span></label>`).join('')}</fieldset>` +
     select('MCP 服务授权（多选）', 'mcpServerIds', (data.mcpServers ?? []).map(server =>
       [server.id, server.name + (server.enabled ? '' : '（服务已停用）')]), authorization.mcpServerIds, {multiple:true}) +
-    `<p class="description">${['codex','pi'].includes(agent.runtime) ? 'MCP 已接入，所选服务将在授权执行的新任务中提供。' : 'MCP 尚未适配：授权选择会保存，当前不会提供服务。'} MCP 的外部访问范围由服务自身控制。</p>`,
+    `<p class="description">${['codex','pi'].includes(agent.runtime) ? 'MCP 已接入，所选服务将在授权执行的新任务中提供。' : 'MCP 尚未适配：授权选择会保存，当前不会提供服务。'} MCP 的外部访问范围由服务自身控制。</p>` +
+    '<fieldset class="agent-permission-options"><legend>GitHub 授权</legend>' +
+    select('访问方式', 'githubMode', Object.entries(githubModes), scope.mode) +
+    '<div id="github-custom-scope" class="github-custom-scope">' +
+    select('允许访问的仓库', 'githubRepositories', repositories, scope.repositoryIds, {multiple:true}) +
+    select('允许的操作', 'githubOperations', Object.entries(githubOperations), scope.operations, {multiple:true}) +
+    '</div><p id="github-effective-scope" class="description" role="status"></p></fieldset>',
     form => {
       const {candidateId, ...profile} = agent;
       return api('agents', {...profile, expectedVersion:agent.version, authorization:{execution:form.has('execution'),
-        sandbox:form.get('sandbox'), mcpServerIds:form.getAll('mcpServerIds'),
+        sandbox:form.get('sandbox'), mcpServerIds:form.getAll('mcpServerIds'), github:readGithubScope(form),
         tools:Object.fromEntries(agentPermissionDefinitions.map(definition => [definition.key, form.has('permission-' + definition.key)]))}});
     });
-  const updateStatus = () => { el('execution-authorization-status').textContent = !el('editor').elements.execution.checked
+  const updateStatus = () => {
+    el('file-authorization-status').textContent = fileAuthorizationDescription({...agent,
+      authorization:{...authorization, execution:el('editor').elements.execution.checked, sandbox:el('editor').elements.sandbox.value}});
+    el('execution-authorization-status').textContent = !el('editor').elements.execution.checked
     ? '管理员未授权：不会派发新的平台执行任务。'
     : adapter.ready ? '已授权，执行适配器已就绪；任务仍需满足派发条件。' : '已授权，待适配：尚不能执行任务，开启授权不会自动接入执行接口。'; };
-  el('editor').elements.execution.addEventListener('change', updateStatus);
+  const editor = el('editor');
+  editor.elements.execution.addEventListener('change', updateStatus);
+  editor.elements.sandbox.addEventListener('change', updateStatus);
+  function updateGithubScope() {
+    const selected = readGithubScope(new FormData(editor));
+    el('github-custom-scope').hidden = selected.mode !== 'custom';
+    const allowed = githubGrants(data.github, {...agent, authorization:{...authorization, execution:editor.elements.execution.checked}}, selected);
+    const operationLabels = [...new Set(allowed.flatMap(repo => repo.operations))].map(operation => githubOperations[operation]);
+    el('github-effective-scope').textContent = selected.mode === 'deny' ? '已禁止访问 GitHub。'
+      : !data.github?.account ? '工作区尚未连接 GitHub，可先保存访问方式。'
+        : allowed.length ? `当前平台授权 ${allowed.length} 个仓库 · ${operationLabels.join('、')}。GitHub 在调用时校验账号权限。`
+          : '当前配置没有可用的 GitHub 操作。';
+  }
+  editor.querySelector('#github-custom-scope').closest('fieldset').addEventListener('change', updateGithubScope);
+  editor.elements.execution.addEventListener('change', updateGithubScope);
   updateStatus();
-}
-
-function editCandidate(id) {
-  const candidate = find('candidates', id);
-  const runtimes = [observedOption];
-  runtimes.push(...runtimeOptions.filter(([id]) => candidateRuntimes(candidate).includes(id)));
-  const profile = candidate.draft ?? {name: providerLabels[candidate.provider], runtime: 'observed'};
-  edit('人事入职档案',
-    `<p class="description">${escape(name('machines', candidate.machineId))} · ${escape(providerLabels[candidate.provider])}</p>` +
-    agentFields(profile, runtimes, true),
-    form => api('candidates/' + id + '/review', {...Object.fromEntries(form),
-      skillIds:form.getAll('skillIds'), mcpServerIds:form.getAll('mcpServerIds')}),
-    '提交入职档案');
-  updateFilePermission();
-}
-
-function approveCandidate(id) {
-  const {draft, reviewVersion, provider} = find('candidates', id);
-  edit('确认入职', `<div class="card"><h3>${escape(draft.name)} · ${escape(roleLabels[draft.role])}</h3>
-    <p>人格 ${escape(draft.personality)}</p><p>职责 ${escape(draft.scope)}</p>
-    <p>小队 ${escape(name('teams', draft.teamId))}</p>
-    <p>人物形象 ${escape(resolveAvatar(draft).name)}</p>
-    <p>技能 ${escape(draft.skillIds.map(id => name('skills', id)).join('、') || '—')}</p>
-    <p>MCP ${escape((draft.mcpServerIds ?? []).map(id => name('mcpServers', id)).join('、') || '—')}</p>
-    <p>执行适配 ${escape(executionAdapterStatus({...draft, provider}).label)}</p>
-    <p>文件权限 ${draft.sandbox === 'workspace-write' ? '任务目录可写' : '只读'}</p></div>`,
-    () => api('candidates/' + id + '/approve', {reviewVersion}), '批准入职');
+  updateGithubScope();
 }
 
 function pairMachine() {
   const {defaultAddress,port,tunnelHost} = data.collector;
-  edit('配对新机器', input('机器名称', 'name', '', {required: true}) +
+  edit('接入新机器', '<p class="description">先在新电脑安装 npm 客户端，再填写该电脑可访问的采集地址。保存后生成独立的 login 命令和一次性配对码。</p>' + input('机器名称', 'name', '', {required: true}) +
     input('目标机器可访问的接收地址', 'address', defaultAddress, {required:true,type:'url'}) +
+    '<p class="description">填写采集端基础地址，例如 https://office.example.com/collector。默认采集端口为 4318；不要填写 /office 或 /v1/report。127.0.0.1 需配合新电脑上的 SSH 隧道。</p>' +
     select('客户端任务读取范围', 'taskAccess', [['none', '仅采集，不可读取任务'], ['all', '所有项目（只读）'],
       ...(data.projects ?? []).map(project => ['project:' + project.id, project.name + '（只读）'])], 'none') +
     select('目标机器的终端','shell',[['sh','macOS / Linux'],['powershell','Windows PowerShell']],'sh'),
     async form => {
-      const {command,restart,loopback,code,expiresAt} = await api('machines', {...Object.fromEntries(form), pairingMode: 'code'});
+      const {install,command,restart,loopback,code,expiresAt} = await api('machines', {...Object.fromEntries(form), pairingMode: 'code'});
+      el('pair-install').value = install;
       el('pair-code').value = code;
       el('pair-expiry').textContent = `有效期至 ${new Date(expiresAt).toLocaleTimeString()}，仅可使用一次。`;
       el('pair-command').value = command;
@@ -2009,7 +2103,7 @@ function pairMachine() {
         : '';
       el('pair-copy-status').textContent = '';
       openModal('pairing');
-    }, '生成配对码');
+    }, '生成 login 命令');
 }
 
 function editTask(id, conversationId = '', preset = {}) {
@@ -2175,6 +2269,52 @@ function archiveCatalogue(kind, id) {
     () => api('settings/' + kind + '/' + id + '/archive', {archived: true}), '确认归档');
 }
 
+function deleteCatalogue(kind, id) {
+  const isLabel = kind === 'label';
+  const collection = isLabel ? data.settings.labels : data.settings.properties;
+  const item = collection.find(entry => entry.id === id);
+  if (!item) return;
+  const used = data.tasks.filter(task => isLabel
+    ? (task.labelIds ?? []).includes(id)
+    : task.properties && Object.hasOwn(task.properties, id)).length;
+  const summary = isLabel
+    ? `删除后将从所有任务中移除该标签${used ? `（当前有 ${used} 项任务使用）` : ''}，且无法恢复。`
+    : `删除后所有任务上该字段的值将被清除${used ? `（当前有 ${used} 项任务已填写）` : ''}，且无法恢复。`;
+  edit(`删除${isLabel ? '标签' : '自定义字段'} · ${item.name}`,
+    `<p>确定要永久删除${isLabel ? '标签' : '自定义字段'}「<strong>${escape(item.name)}</strong>」吗？</p><p class="description">${summary}</p>`,
+    async () => {
+      await api('settings/' + kind + '/' + id + '/delete', {});
+      if (isLabel && taskFilters.label === id) delete taskFilters.label;
+      if (isLabel && taskFilterDraft.label === id) delete taskFilterDraft.label;
+    }, '确认删除');
+}
+
+function deleteNamedResource(kind, id) {
+  const spec = {
+    team: {collection: 'teams', label: '小队', path: 'teams'},
+    skill: {collection: 'skills', label: '技能', path: 'skills'},
+    mcp: {collection: 'mcpServers', label: 'MCP 服务', path: 'mcp-servers'},
+  }[kind];
+  const record = find(spec.collection, id);
+  if (!record) return;
+  let summary = '';
+  if (kind === 'team') {
+    const members = data.agents.filter(a => a.teamId === id).length + (data.humans ?? []).filter(h => h.teamId === id).length;
+    const zones = (data.layout?.draft?.zones ?? []).filter(z => z.teamId === id).length;
+    const parts = [members ? `${members} 名成员` : '', zones ? `${zones} 个空间区域` : ''].filter(Boolean);
+    summary = `删除后将清空关联成员的小队归属、区域分配及小队预算${parts.length ? `（当前关联 ${parts.join('、')}）` : ''}，且无法恢复。`;
+  } else if (kind === 'skill') {
+    const used = data.agents.filter(a => (a.skillIds ?? []).includes(id)).length;
+    summary = `删除后将自动从已分配的智能体档案中移除${used ? `（当前有 ${used} 位智能体使用）` : ''}，且无法恢复。`;
+  } else {
+    const used = data.agents.filter(a => (a.mcpServerIds ?? []).includes(id) || (a.authorization?.mcpServerIds ?? []).includes(id)).length;
+    summary = `删除后将自动解除智能体对该 MCP 服务的授权${used ? `（当前有 ${used} 位智能体已授权）` : ''}，且无法恢复。`;
+  }
+  edit(`删除${spec.label} · ${record.name}`,
+    `<p>确定要永久删除${spec.label}「<strong>${escape(record.name)}</strong>」吗？</p><p class="description">${summary}</p>`,
+    () => api(spec.path + '/' + id + '/delete', {}), '确认删除');
+}
+
 async function action(type, id, anchor) {
   if (!actionAllowed(type, id)) return;
   if (await workspaceView.action(type, id)) return;
@@ -2224,6 +2364,10 @@ async function action(type, id, anchor) {
       break;
     }
     case 'office-orbit': officeScene?.rotate(Number(id)); break;
+    case 'office-lighting-cycle':
+      officeLightMode = (officeLightMode + 1) % officeLightModes.length;
+      renderOfficeScene();
+      break;
     case 'office-zoom-out':
     case 'office-zoom-in':
     case 'office-zoom-reset':
@@ -2232,14 +2376,34 @@ async function action(type, id, anchor) {
       render();
       break;
     case 'settings-section': navigate('settings', id); break;
+    case 'github-connect':
+      await api(githubEndpoint + 'connect', {expectedVersion:data.github.version});
+      break;
+    case 'github-disconnect': {
+      const {account, version} = data.github;
+      edit('断开 GitHub', `<p>断开 @${escape(account.login)} 并清除工作区仓库授权。正在执行的任务将无法发起新的 GitHub 调用。</p>`,
+        () => api(githubEndpoint + 'disconnect', {expectedVersion:version}), '断开连接');
+      break;
+    }
+    case 'github-repository': editGithubRepository(id); break;
+    case 'github-repository-remove': {
+      const {repositories, version} = data.github;
+      const repo = repositories.find(row => row.id === id);
+      if (repo) edit('移除仓库授权', `<p>移除 ${escape(repo.fullName)} 的工作区授权。智能体后续调用将被拒绝。</p>`,
+        () => api(githubEndpoint + 'remove-repository', {id, expectedVersion:version}), '移除授权');
+      break;
+    }
     case 'setting-edit': editSettings(id); break;
     case 'label-edit': editCatalogue('label', id); break;
     case 'property-edit': editCatalogue('property', id); break;
     case 'label-archive': await archiveCatalogue('label', id); break;
     case 'property-archive': await archiveCatalogue('property', id); break;
+    case 'label-delete': deleteCatalogue('label', id); break;
+    case 'property-delete': deleteCatalogue('property', id); break;
     case 'goto-inbox': navigate('inbox'); break;
     case 'goto-notifications': navigate('settings', 'notifications'); break;
     case 'goto-discovery': navigate('discovery'); break;
+    case 'goto-agents': navigate('agents'); break;
     case 'goto-people': navigate('people'); break;
     case 'goto-finance': navigate('finance'); break;
     case 'inbox-read': await api('inbox/read', {through: inboxData.events[0].seq}); break;
@@ -2337,27 +2501,25 @@ async function action(type, id, anchor) {
     case 'agent-permissions': editAgentPermissions(id); break;
     case 'scan-local': await api('discovery/scan', {}); break;
     case 'machine-pair': pairMachine(); break;
+    case 'collector-copy': await copyCollectorCommand(id); break;
+    case 'machine-delete':
+      edit('删除接入机器', `<p>删除 ${escape(name('machines', id))} 的配对与扫描记录，保留任务、执行和审计历史。重新加入需要新的配对码。</p>
+        <p class="description">提交时会再次检查离线状态、员工绑定与活动任务。</p>`,
+        () => api('machines/' + id + '/delete', {}), '删除机器');
+      break;
     case 'machine-revoke':
       edit('撤销机器配对', `<p>停止接收 ${escape(name('machines', id))} 的上报。</p>`,
         () => api('machines/' + id + '/revoke', {}), '撤销配对');
       break;
-    case 'candidate-review': editCandidate(id); break;
-    case 'candidate-approve': approveCandidate(id); break;
-    case 'candidate-dismiss':
-      await api('candidates/' + id + '/dismiss', {});
-      break;
-    case 'candidate-assign': {
-      const candidate = find('candidates', id);
-      const hr = data.agents.find(agent => agent.role === 'hr' && agent.runtime === 'codex');
-      editTask('', '', {title: `拟定入职档案 · ${providerLabels[candidate.provider]}`, assigneeId: hr.id,
-        description: `请为候选 Agent ${candidate.id} 拟定姓名、人格、职责和适用技能，并使用 office_review_candidate 提交。最终由管理员确认入职。`,
-        acceptance: '候选进入待确认状态。'});
-      break;
-    }
+    case 'candidate-connect': await api('candidates/' + id + '/connect', {}); break;
+    case 'candidate-dismiss': await api('candidates/' + id + '/dismiss', {}); break;
     case 'team-edit':
     case 'skill-edit':
     case 'project-edit': editNamed(type.split('-')[0], id); break;
+    case 'team-delete': deleteNamedResource('team', id); break;
+    case 'skill-delete': deleteNamedResource('skill', id); break;
     case 'mcp-edit': editMcp(id); break;
+    case 'mcp-delete': deleteNamedResource('mcp', id); break;
     case 'skill-market': await openSkillMarket(); break;
     case 'skill-search': await searchSkillMarket(Number(id)); break;
     case 'skill-download': await downloadSkill(id,anchor); break;
@@ -2438,18 +2600,24 @@ async function action(type, id, anchor) {
   }
 }
 
-el('pair-copy').addEventListener('click', async () => {
-  const command = el('pair-command');
+async function copyCollectorCommand(id) {
+  const command = el(id);
+  if (!command) return;
+  const text = command.value ?? command.textContent;
+  const status = el(id.startsWith('pair-') ? 'pair-copy-status' : 'collector-copy-status');
   try {
-    await navigator.clipboard.writeText(command.value);
-    el('pair-copy-status').textContent = '启动命令已复制';
+    await navigator.clipboard.writeText(text);
+    status.textContent = '已复制';
   } catch {
-    command.focus();
-    command.select();
-    el('pair-copy-status').textContent = '已选中启动命令，可以手动复制';
+    if (command.select) { command.focus(); command.select(); }
+    else { const range = document.createRange(); range.selectNodeContents(command); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); }
+    status.textContent = '已选中，可以手动复制';
   }
-});
+}
+el('pair-copy').addEventListener('click', () => copyCollectorCommand('pair-command'));
 el('pairing').addEventListener('close', () => {
+  el('pair-install').value = '';
+  el('pair-restart').textContent = '';
   el('pair-command').value = '';
   el('pair-code').value = '';
   el('pair-expiry').textContent = '';

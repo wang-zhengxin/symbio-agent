@@ -51,11 +51,15 @@ export function openStore(path) {
   const notifications = db.prepare(`SELECT * FROM events WHERE ${notificationFilter} ORDER BY seq DESC LIMIT ?`);
   const unread = db.prepare(`SELECT COUNT(*) AS total FROM events WHERE ${notificationFilter} AND seq > ?`);
   const audit = db.prepare(`SELECT * FROM events WHERE type IN (
-    'settings.updated', 'catalogue.saved', 'catalogue.archived', 'agent.saved', 'team.saved',
-    'skill.saved', 'mcp.saved', 'machine.paired', 'machine.revoked', 'candidate.reviewed',
+    'settings.updated', 'catalogue.saved', 'catalogue.archived', 'catalogue.deleted',
+    'agent.saved', 'team.saved', 'team.deleted', 'skill.saved', 'skill.deleted',
+    'mcp.saved', 'mcp.deleted', 'machine.paired', 'machine.revoked', 'machine.deleted', 'candidate.reviewed',
     'candidate.approved', 'candidate.dismissed', 'budget.updated', 'agent.dispatch',
     'human.saved', 'schedule.saved', 'layout.saved', 'layout.published',
-    'account.registered', 'account.updated', 'account.email-bound'
+    'layout.workstations_added', 'layout.workstations_removed', 'layout.furniture_saved',
+    'account.registered', 'account.updated', 'account.email-bound',
+    'github.connected', 'github.verified', 'github.disconnected', 'github.repository_saved',
+    'github.repository_removed', 'github.operation'
   ) ORDER BY seq DESC LIMIT 100`);
   const officeActivity = db.prepare(`SELECT * FROM events WHERE
     type IN ('run.started', 'run.failed', 'run.interrupted', 'task.comment', 'candidate.reviewed',

@@ -4,8 +4,10 @@ import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import { runtimeMcpConfig } from './agent-capabilities.js';
 import { effectiveAgentPermissions } from '../public/agent-permissions.js';
+import { runnerEnvironment } from './github-auth.js';
 
 export function redact(value) {
   return String(value ?? '')
@@ -54,8 +56,29 @@ export function runtimeInstructions(run, runtime = run.agent.runtime) {
       : run.kind === 'comment' ? '这是任务讨论中的回复。直接输出要发布的评论正文，不执行原任务，不修改文件。'
         : '在职责内执行任务。完成后汇报结果和验证情况。',
     run.kind === 'task' && runtime === 'codex' && '需要进行公司管理或交接时，使用当前提供的 office 工具。使用 office_task_discussion 可读取执行期间的最新评论。',
+    run.githubAccess && '通过提供的 github_* 工具操作工作区授权的 GitHub 仓库。可用 github_list_repositories 确认范围，并记录提交 SHA 或 PR 链接。',
     run.kind === 'task' && runtime === 'pi' && effectiveAgentPermissions(run.agent).comments && '如果需要在任务讨论中发消息，可在最终输出另起一行写 OFFICE_COMMENT {"text":"@同事姓名 消息正文"}。可带 replyToId 回复，或用 parent:true 发送到父任务。每次最多三条，另写正常交付正文。',
   ].filter(Boolean).join('\n');
+}
+
+function bridgePiGithub(channel, definitions, tools, signal) {
+  const frames = createInterface({input:channel});
+  const allowed = new Set(definitions.map(tool => tool.name));
+  channel.on('error', () => frames.close());
+  frames.on('line', async line => {
+    if (signal.aborted) return;
+    if (line.length > 1_500_000) return channel.destroy();
+    let request;
+    try { request = JSON.parse(line); } catch { return; }
+    if (!allowed.has(request?.tool) || typeof request.callId !== 'string') return;
+    try {
+      const result = await tools.call(request);
+      if (!channel.destroyed && !signal.aborted) channel.write(JSON.stringify({callId:request.callId, result}) + '\n');
+    } catch {
+      channel.destroy();
+    }
+  });
+  channel.write(JSON.stringify({definitions}) + '\n');
 }
 
 async function setupPiMcp(directory, servers) {
@@ -98,15 +121,19 @@ export async function piRuntime({emit, signal, run, cwd, executable, piProviderE
     const args = ['--mode', 'json', '--no-session', '--no-extensions',
       '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-themes', '--no-approve',
       '--append-system-prompt', promptPath];
+    const githubDefinitions = (tools?.definitions ?? []).filter(tool => tool.name.startsWith('github_'));
+    const handlesGithub = githubDefinitions.length > 0;
     if (piDirectory) args.push('--no-builtin-tools', '--extension', 'builtin:mcp',
       '--exclude-tools', 'list_mcp_resources,list_mcp_resource_templates,read_mcp_resource');
-    else args.push('--no-tools', '--no-mcp');
+    else args.push(handlesGithub ? '--no-builtin-tools' : '--no-tools', '--no-mcp');
+    if (handlesGithub) args.push('--extension', fileURLToPath(new URL('./pi-github-extension.js', import.meta.url)));
     if (piProviderExtension) args.push('--extension', piProviderExtension);
     if (run.agent.model) args.push('--model', run.agent.model);
     const child = spawn(executable, args, {
-      cwd, stdio: ['pipe', 'pipe', 'pipe'],
-      env:piDirectory ? {...process.env, PI_CODING_AGENT_DIR:piDirectory} : process.env,
+      cwd, stdio: handlesGithub ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
+      env:{...runnerEnvironment(), ...(piDirectory ? {PI_CODING_AGENT_DIR:piDirectory} : {})},
     });
+    if (handlesGithub && child.stdio[3]) bridgePiGithub(child.stdio[3], githubDefinitions, tools, signal);
     let stderr = '';
     let lines = '';
     let pending = '';
@@ -158,11 +185,13 @@ export async function piRuntime({emit, signal, run, cwd, executable, piProviderE
           break;
         case 'tool_execution_start':
         case 'tool_execution_end': {
-          if (!event.toolName?.startsWith('mcp__')) break;
+          const name = event.toolName;
+          const isGithub = name?.startsWith('github_');
+          if (!isGithub && !name?.startsWith('mcp__')) break;
           const started = event.type === 'tool_execution_start';
           const status = started ? 'inProgress' : event.isError ? 'failed' : 'completed';
           emit(started ? 'tool.started' : event.isError ? 'tool.failed' : 'tool.completed', {
-            id:event.toolCallId, label:'调用外部工具', summary:clip(event.toolName, 128), status,
+            id:event.toolCallId, label:isGithub ? '调用 GitHub 工具' : '调用外部工具', summary:clip(name, 128), status,
           });
           break;
         }
@@ -245,7 +274,7 @@ function observeFirstOutput(emit) {
 export async function codexRuntime({emit, signal, run, cwd, tools, executable, mcpServers = []}) {
   const selected = runtimeMcpConfig(mcpServers, 'codex');
   const child = spawn(executable, ['-c', 'features.plugins=false', 'app-server', '--listen', 'stdio://'], {
-    cwd, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd, stdio: ['pipe', 'pipe', 'pipe'], env:runnerEnvironment(),
   });
   let stderr = '';
   let nextId = 0;
@@ -319,7 +348,9 @@ export async function codexRuntime({emit, signal, run, cwd, tools, executable, m
       }
       if (Object.hasOwn(msg, 'id')) {
         if (msg.method === 'item/tool/call' && p.threadId === threadId && !signal.aborted) {
-          send({id: msg.id, result: tools.call(p)});
+          Promise.resolve(tools.call(p)).then(result => {
+            if (!signal.aborted && !finished) send({id:msg.id, result});
+          }).catch(error => done.reject(error));
         } else {
           send({id: msg.id, error: {code: -32601, message: '当前运行权限不支持此请求'}});
         }

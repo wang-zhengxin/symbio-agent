@@ -137,13 +137,25 @@ test('Offline detection respects a configured long heartbeat without keeping sta
 
 test('Generated npm login commands avoid embedding codes, support shells and preserve legacy join', () => {
   const sh = collectorCommand({address: 'https://office.example', shell: 'sh'}, false, false);
-  assert.match(sh.login, /symbio-agent-collector@0\.2\.0/);
+  assert.match(sh.install, /^npm install --global .*symbio-agent-collector@0\.2\.0$/);
+  assert.match(sh.login, /^symbio login /);
+  assert.equal(sh.restart, 'symbio run');
   assert.match(sh.login, /login 'https:\/\/office.example' --run$/);
   assert.doesNotMatch(sh.login, /--code|token/);
-  assert.match(sh.launch('legacy-secret'), /printf.*legacy-secret.* join/);
+  assert.match(sh.launch('legacy-secret'), /printf.*legacy-secret.* -- symbio join/);
   const ps = collectorCommand({address: 'http://127.0.0.1:4318', shell: 'powershell'}, false, true);
-  assert.match(ps.login, /^npx.cmd/);
-  assert.match(ps.login, /collector-package.tgz/);
+  assert.match(ps.install, /^npm.cmd install --global /);
+  assert.match(ps.install, /collector-package.tgz/);
+  assert.match(ps.login, /^symbio\.cmd login /);
+  assert.equal(ps.restart, 'symbio.cmd run');
+  assert.match(ps.legacyRestart, /^npx.cmd /);
+  const lan = collectorCommand({address:'http://192.168.1.10:4318',shell:'sh'},true,true);
+  assert.match(lan.login,/--allow-http --run$/);
+  const quoted = collectorCommand({address:"https://office.example/a'b",shell:'sh'},false,true);
+  assert.ok(quoted.login.includes("'\"'\"'"));
+  const quotedPs = collectorCommand({address:"https://office.example/a'b",shell:'powershell'},false,true);
+  assert.ok(quotedPs.install.includes("a''b"));
+  for(const path of ['/office','/v1/report','/v1/pair/']) assert.throws(()=>collectorCommand({address:'https://office.example'+path},false,true),/基础地址/);
   assert.throws(() => endpoint('http://remote.example', false), /HTTPS/);
   assert.throws(() => endpoint('https://u:password@example.org', false), /凭据/);
   assert.equal(endpoint('https://office.example/collector', false, '/v1/tasks').pathname, '/collector/v1/tasks');

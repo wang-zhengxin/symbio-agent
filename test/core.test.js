@@ -1,3 +1,4 @@
+import {createDiscovery} from '../src/discovery.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openStore } from '../src/store.js';
@@ -164,12 +165,15 @@ test('Third participant joins the current round; closing stops the outstanding t
 
 test('Company tools enforce role boundaries and replay one mutation for a repeated call id', t => {
   const {office, store, create, task} = setup(t);
-  const hr = create('人事', 'hr');
+  const discovery = createDiscovery(store);
+  discovery.receive('local',{hostname:'test',platform:'darwin',installed:['codex'],processScan:'ok',processes:[]});
+  const source = discovery.connect(store.list('candidate')[0].id);
+  const hr = office.saveManagedAgent({name:'人事',role:'hr',runtime:'codex',runnerCandidateId:source.id});
   const run = office.startRun(office.enqueueTask(task(hr).id).id);
   const tools = companyTools(store, office, run);
   const request = {
     callId: 'create-1', tool: 'office_hire',
-    arguments: {name: '工程师', scope: '实现功能', personality: '简洁', role: 'finance', sandbox: 'workspace-write'},
+    arguments: {name: '工程师', scope: '实现功能', personality: '简洁', role: 'finance', sandbox: 'workspace-write', authorization:{sandbox:'workspace-write'}},
   };
   const result = tools.call(request);
   assert.equal(result.success, true);
@@ -188,6 +192,7 @@ test('Codex protocol translates streamed activities and accounts a real-shaped t
   const {join} = await import('node:path');
   const {tmpdir} = await import('node:os');
   const {createScheduler} = await import('../src/scheduler.js');
+  const {createGithubIntegration} = await import('../src/github-integration.js');
   const {store, office, create, task} = setup(t);
   const data = await mkdtemp(join(tmpdir(), 'office-protocol-'));
   const executable = join(data, 'mock-codex');
@@ -203,6 +208,7 @@ lines.on('line', line => {
   if (method === 'config/read') send({id, result:{config:{mcp_servers:{personal:{enabled:true}}}}});
   if (method === 'thread/start') {
     if (!params.dynamicTools.some(spec => spec.name === 'office_hire')) process.exit(2);
+    if (!params.dynamicTools.some(spec => spec.name === 'github_list_repositories')) process.exit(7);
     if (!params.developerInstructions.includes('本地 Agent 公司员工 人事')) process.exit(4);
     const servers = params.config.mcp_servers;
     if (servers.personal?.enabled !== false || Object.values(servers).filter(server => server.enabled).length !== 1 ||
@@ -220,6 +226,11 @@ lines.on('line', line => {
   if (id === 'invoke') {
     if (!result?.success) process.exit(3);
     notify('item/completed', {item:{...item, status:'completed'}});
+    send({id:'github', method:'item/tool/call', params:{threadId:'thread', turnId:'turn',
+      callId:'github-list', tool:'github_list_repositories', arguments:{}}});
+  }
+  if (id === 'github') {
+    if (!result?.success || JSON.parse(result.contentItems[0].text).repositories[0]?.fullName !== 'test/repo') process.exit(8);
     notify('item/agentMessage/delta', {delta:'已创建'});
     notify('item/completed', {item:{id:'answer', type:'agentMessage', phase:'final_answer', text:'已创建员工'}});
     notify('turn/completed', {turn:{id:'turn', status:'completed'}});
@@ -227,12 +238,19 @@ lines.on('line', line => {
   }
 });
 `, {mode: 0o700});
-  const scheduler = createScheduler({store, office, data, concurrency: 1, executable});
+  const github = createGithubIntegration(store, async () => ({account:{id:'1',login:'local-test'},
+    request:async () => ({id:1, full_name:'test/repo', default_branch:'main'})}));
+  const connected = await github.connect({expectedVersion:0});
+  await github.saveRepository({fullName:'test/repo', operations:['read'], expectedVersion:connected.version});
+  const scheduler = createScheduler({store, office, github, data, concurrency: 1, executable});
   // Run cleanup before setup's database cleanup.
   try {
     const server = office.saveMcpServer({name:'测试 MCP', transport:'http', url:'https://example.com/mcp', tools:'lookup'});
     const skill = office.saveNamed('skill', {name:'验收', instructions:'确认结果后再交付'});
-    const agent = office.saveAgent({name:'人事', role:'hr', skillIds:[skill.id], mcpServerIds:[server.id]});
+    const discovery = createDiscovery(store);
+    discovery.receive('local',{hostname:'test',platform:'darwin',installed:['codex'],processScan:'ok',processes:[]});
+    const source = discovery.connect(store.list('candidate')[0].id);
+    const agent = office.saveManagedAgent({name:'人事',role:'hr',runtime:'codex',runnerCandidateId:source.id,skillIds:[skill.id],mcpServerIds:[server.id]});
     const run = office.enqueueTask(task(agent).id);
     const result = await new Promise((resolve, reject) => {
       const deadline = setTimeout(() => reject(new Error('protocol timeout')), 5000);

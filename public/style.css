@@ -672,11 +672,38 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: .7rem;
 .discovery-instances ul { list-style: none; padding: 0; margin: 10px 0 0; max-height: 250px; overflow: auto; }
 .discovery-instances li { display: flex; flex-wrap: wrap; gap: 5px 12px; padding: 8px 0; border-top: 1px solid var(--border); font-size: .8rem; }
 .discovery-instances time { color: var(--muted); width: 100%; }
+.discovery-instance-name { width: 100%; overflow-wrap: anywhere; }
+.collector-onboarding { margin: 24px 0; }
+.collector-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 0; list-style: none; }
+.collector-steps li { display: flex; gap: 12px; align-items: flex-start; }
+.collector-steps li > span { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .8rem; padding-top: 3px; }
+.collector-steps strong { font-size: .95rem; }
+.collector-steps p { margin: 8px 0 0; font-size: .85rem; line-height: 1.65; color: var(--muted); }
+.collector-install { display: flex; align-items: center; gap: 20px; justify-content: space-between; padding: 16px; border-radius: 12px; background: rgba(255,255,255,.5); border: 1px solid var(--border); }
+.collector-install > div { min-width: 0; }
+.collector-install pre { background: transparent; margin: 6px 0 0; padding: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.collector-install button { flex-shrink: 0; }
+.machine-removal-reason { display: block; max-width: 260px; line-height: 1.6; margin-top: 6px; }
+.collector-guide { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px; }
+.collector-guide > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.collector-guide > summary .description { font-weight: 400; font-size: .8rem; margin-left: 16px; }
+.collector-guide-body { display: grid; gap: 24px; padding-top: 24px; line-height: 1.8; overflow-wrap: anywhere; }
+.collector-guide-body section { min-width: 0; }
+.collector-guide-body h3 { font-size: 1rem; margin: 0 0 12px; }
+.collector-guide-body p, .collector-guide-body ul, .collector-guide-body ol { font-size: .875rem; margin: 8px 0; }
+.collector-guide-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.collector-guide-body td code { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 850px) {
+  .collector-steps { grid-template-columns: 1fr; gap: 16px; }
+  .collector-install { flex-direction: column; align-items: stretch; }
+  .collector-guide > summary .description { display: block; margin: 8px 0 0; }
+}
 .discovery-legacy { padding: 10px 0; }
 .discovery-legacy p { margin-bottom: 8px; }
 
 .agent-permission-options { margin: 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; display: grid; gap: 14px; }
 .agent-permission-options legend { padding: 0 6px; font-weight: 600; }
+.github-custom-scope:not([hidden]) { display: grid; gap: 16px; }
 .agent-adapter-status { padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
 .agent-adapter-status h3 { margin: 0 0 8px; font-size: 15px; }
 .agent-adapter-status p { margin: 0; }

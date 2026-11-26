@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { choice, fail, integer, string } from './input.js';
 import { avatarIds } from '../public/office-avatars.js';
 import { assignWorkstation, workstationCount } from './workstations.js';
+import { getOfficeDecor } from './furniture.js';
 
 export const zoneTypes = ['work', 'meeting', 'ai', 'lounge'];
 const templates = ['open', 'delivery', 'distributed'];
@@ -131,5 +132,13 @@ export function createWorkspace(store) {
   }
 
   return {saveHuman, saveSchedule, saveLayout, ensureAdministrator,
-    snapshot: () => ({humans: list('human'), schedules: list('schedule'), layout: layout(), workstationCount:workstationCount(store)})};
+    snapshot: () => {
+      const decor = getOfficeDecor(store);
+      return {
+        humans: list('human'), schedules: list('schedule'), layout: layout(),
+        workstationCount: workstationCount(store),
+        officeMode: decor.mode, officeFloors: decor.floors,
+        officeItems: decor.items, officeWalls: decor.walls, officeRugs: decor.rugs,
+      };
+    }};
 }

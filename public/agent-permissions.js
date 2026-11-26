@@ -22,6 +22,7 @@ export function agentAuthorization(agent) {
   return {execution:agent.authorization?.execution ?? true,
     sandbox:agent.authorization?.sandbox ?? agent.sandbox ?? 'read-only',
     mcpServerIds:agent.authorization?.mcpServerIds ?? agent.mcpServerIds ?? [],
+    ...(agent.authorization?.github ? {github:agent.authorization.github} : {}),
     tools:Object.fromEntries(agentPermissionDefinitions.map(item => [item.key,
       agent.authorization?.tools?.[item.key] ?? agent.permissions?.[item.key] ?? item.roles.includes(agent.role)]))};
 }
@@ -37,6 +38,20 @@ export function executionAdapterStatus(agent) {
 
 export function agentCanExecute(agent) {
   return executionAdapterStatus(agent).ready && agentAuthorization(agent).execution;
+}
+
+export function fileAuthorizationDescription(agent) {
+  const authorization = agentAuthorization(agent);
+  const grant = authorization.sandbox === 'workspace-write' ? '允许任务工作目录写入' : '只读';
+  let effect;
+  if (!authorization.execution) effect = '平台执行授权已关闭，不会派发新的任务。';
+  else if (!executionAdapterStatus(agent).ready) effect = '当前运行器尚未接入任务执行接口，文件授权暂不生效。';
+  else if (agent.runtime === 'pi') effect = '当前 Pi 适配器关闭内置文件与终端工具，文件授权暂不生效。';
+  else if (agent.runtime === 'demo') effect = '演示运行器不执行真实文件操作。';
+  else if (['hr', 'finance'].includes(agent.role)) effect = '当前岗位的文件操作上限为只读，写入授权暂不生效。';
+  else effect = authorization.sandbox === 'workspace-write'
+    ? '新任务可写入任务工作目录。' : '新任务的文件访问为只读。';
+  return `文件授权选择为「${grant}」。${effect} 可修改并保存授权，实际生效范围由执行适配、岗位和平台执行授权共同决定。`;
 }
 
 const toolPermissions = {

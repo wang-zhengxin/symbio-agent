@@ -16,7 +16,7 @@ export const navigationGroups = [
     {title:'小队', page:'teams', icon:'team'},
     {title:'Skills', page:'skills', icon:'skills'},
     {title:'运行时', page:'runtime', icon:'monitor'},
-    {title:'发现与入职', page:'discovery', icon:'discovery'},
+    {title:'发现与接入', page:'discovery', icon:'discovery'},
   ]},
   {name:'数字办公室', items:[
     {title:'办公室', page:'overview', icon:'office'},
@@ -32,7 +32,7 @@ export const settingsGroups = {
   '个人设置': {account:'个人资料', preferences:'偏好设置', notifications:'通知'},
   '工作区管理': {workspace:'常规', people:'成员', users:'账号与权限'},
   '任务配置': {workflow:'任务状态', labels:'标签', properties:'属性'},
-  '连接与扩展': {mcp:'MCP'},
+  '连接与扩展': {integrations:'集成', mcp:'MCP'},
   '系统记录': {audit:'操作记录'},
 };
 export const settingsTitles = Object.assign({}, ...Object.values(settingsGroups));

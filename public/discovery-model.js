@@ -1,5 +1,9 @@
 import { executionRuntimes, executionAdapterStatus } from './agent-permissions.js';
 
+export function runnerConnected(candidate) {
+  return candidate?.connectionStatus === 'connected' || ['connected','approved'].includes(candidate?.status);
+}
+
 // Shared by discovery, the selection UI and server-side onboarding validation.
 export function candidateRuntimes(candidate) {
   return candidate?.machineId === 'local' && candidate.kind === 'installation' && executionRuntimes.includes(candidate.provider)
@@ -13,6 +17,19 @@ export function candidateExecutionStatus(candidate) {
   if (candidateRuntimes(candidate).length === 1) return {label:'已适配，待定位 CLI', ready:false,
     detail:'平台已接入此执行适配器，但当前仅发现进程。请安装或配置可执行 CLI 后重新扫描。'};
   return executionAdapterStatus({runtime:candidate.provider});
+}
+
+// Explicit runtime selection takes precedence over historical hiring provenance.
+// Older local employees only stored `runtime`; count them without rebinding them.
+export function runnerBoundAgents(group, agents = [], candidates = []) {
+  return agents.filter(agent => {
+    const sourceId = agent.runnerCandidateId || agent.candidateId;
+    if (sourceId) {
+      const source = candidates.find(candidate => candidate.id === sourceId);
+      return source?.machineId === group.machine.id && source.provider === group.provider;
+    }
+    return group.machine.id === 'local' && executionRuntimes.includes(agent.runtime) && agent.runtime === group.provider;
+  });
 }
 
 // Employee identity is independent of process identity. PIDs are diagnostics only.
@@ -42,12 +59,14 @@ export function agentRunnerChoices(agent, candidates = [], machines = []) {
   for (const candidate of candidates) {
     const machine = machines.find(row => row.id === candidate.machineId);
     if (candidate.kind === 'process' || !machine || machine.status === 'revoked' ||
+        (!runnerConnected(candidate) && candidate.id !== agent.runnerCandidateId) ||
         (!candidate.present && candidate.id !== agent.runnerCandidateId)) continue;
     const runtime = candidateRuntimes(candidate).at(-1);
     choices.push({value: 'source:' + candidate.id, runtime, provider: candidate.provider,
       candidateId: candidate.id, machine: machine.name, adapter:candidateExecutionStatus(candidate)});
   }
   for (const runtime of ['codex','pi','demo']) {
+    if (runtime !== 'demo' && (!agent.id || agent.runnerCandidateId || agent.runtime !== runtime)) continue;
     if (agent.candidateId && agent.runtime !== runtime) continue;
     if (choices.some(row => row.runtime === runtime)) continue;
     choices.push({value:runtime, runtime, provider:runtime, machine:runtime === 'demo' ? undefined : '本机', adapter:executionAdapterStatus({runtime})});

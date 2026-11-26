@@ -1,5 +1,6 @@
 import { fail } from './input.js';
 import { agentToolAllowed } from '../public/agent-permissions.js';
+import { runnerConnected } from '../public/discovery-model.js';
 
 const text = {type: 'string'};
 const count = {type: 'integer'};
@@ -10,7 +11,7 @@ const spec = (name, description, properties = {}, required = []) => ({
   inputSchema: {type: 'object', properties, required, additionalProperties: false},
 });
 
-export function companyTools(store, office, run) {
+export function companyTools(store, office, run, {github, signal} = {}) {
   const tools = new Map();
   const add = (definition, handler) => {
     if (agentToolAllowed(run.agent, definition.name)) tools.set(definition.name, {definition, handler});
@@ -34,18 +35,16 @@ export function companyTools(store, office, run) {
     add(spec('office_post_comment', '在当前任务发表评论，可回复指定评论或 @ 同事。@ Agent 会异步排队回复。子任务可用 parent=true 发到父任务。',
       {text, replyToId:text, mentions:strings, parent:flag, emailMentions:flag}, ['text']), args => office.commentTask(run.taskId, args, run));
     if (run.agent.role === 'hr') {
-      add(spec('office_candidates', '查询扫描发现且待人事处理的候选 Agent'),
-        () => store.list('candidate').filter(item => (item.kind !== 'process' || item.status === 'review') &&
-          ['discovered', 'review'].includes(item.status) && item.present && store.get('machine', item.machineId)?.status !== 'revoked')
+      add(spec('office_candidates', '查询已接入、可用于绑定员工的运行器；不会创建员工'),
+        () => store.list('candidate').filter(item => item.kind !== 'process' && runnerConnected(item) &&
+          item.present && store.get('machine', item.machineId)?.status !== 'revoked')
           .slice(0, 100).map(({id, provider, kind, machineId, status}) => ({id, provider, kind, machineId, status})));
-      add(spec('office_review_candidate', '为扫描发现的 Agent 提交入职档案，等待工作台批准',
-        {candidateId: text, name: text, personality: text, scope: text, teamId: text, skillIds: strings},
-        ['candidateId', 'name', 'personality', 'scope']), args =>
-        office.stageCandidate(args.candidateId, {...args, role: 'worker', runtime: 'observed', sandbox: 'read-only'}, run));
-      add(spec('office_hire', '创建普通员工。新员工沿用人事的运行器，仅有只读文件权限。',
-        {name: text, personality: text, scope: text, teamId: text, skillIds: strings},
-        ['name', 'personality', 'scope']), args => office.saveAgent({
-        ...args, id: undefined, role: 'worker', runtime: run.agent.runtime, model: run.agent.model, sandbox: 'read-only',
+      add(spec('office_hire', '创建普通员工，绑定已接入运行器；未指定时沿用人事已绑定的来源，仅有只读文件权限。',
+        {name: text, personality: text, scope: text, teamId: text, skillIds: strings, runnerCandidateId:text},
+        ['name', 'personality', 'scope']), args => office.saveManagedAgent({
+        name:args.name, personality:args.personality, scope:args.scope, teamId:args.teamId, skillIds:args.skillIds,
+        role: 'worker', runtime: run.agent.runtime, model: run.agent.model, sandbox: 'read-only',
+        runnerCandidateId:args.runnerCandidateId ?? run.agent.runnerCandidateId,
       }, run));
     }
     if (run.agent.role === 'finance') {
@@ -77,7 +76,7 @@ export function companyTools(store, office, run) {
 
   const responses = new Map();
   return {
-    definitions: [...tools.values()].map(tool => tool.definition),
+    definitions: [...[...tools.values()].map(tool => tool.definition), ...(github?.definitions(run) ?? [])],
     call({callId, namespace, tool, arguments: args}) {
       if (responses.has(callId)) return responses.get(callId);
       function respond(success, value) {
@@ -85,16 +84,26 @@ export function companyTools(store, office, run) {
         if (responses.size < 12) responses.set(callId, response);
         return response;
       }
+      const failure = error => ({error:error.status ? error.message : '公司工具调用失败'});
       try {
         if (responses.size >= 12) fail('本次执行的公司工具调用已达上限');
         if (store.get('run', run.id)?.status !== 'running') fail('执行已经停止');
         const definition = !namespace && tools.get(tool);
-        if (!definition || typeof callId !== 'string' || !args || typeof args !== 'object' || Array.isArray(args)) {
+        const githubCall = !namespace && github?.handles(tool);
+        if ((!definition && !githubCall) || typeof callId !== 'string' || !callId || callId.length > 512 ||
+            !args || typeof args !== 'object' || Array.isArray(args)) {
           fail('不支持此公司工具或参数');
+        }
+        if (githubCall) {
+          // Remember pending calls, so a retried tool request cannot repeat a remote mutation.
+          const result = github.call(run, tool, args, signal).then(
+            value => respond(true, value), error => respond(false, failure(error)));
+          responses.set(callId, result);
+          return result;
         }
         return respond(true, definition.handler(args));
       } catch (error) {
-        return respond(false, {error: error.status ? error.message : '公司工具调用失败'});
+        return respond(false, failure(error));
       }
     },
   };

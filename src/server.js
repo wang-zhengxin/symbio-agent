@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { mkdirSync, readFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore } from './store.js';
@@ -10,7 +11,8 @@ import { fail } from './input.js';
 import { createDiscovery } from './discovery.js';
 import { createSettings } from './settings.js';
 import { createWorkspace } from './workspace.js';
-import { addWorkstations, backfillWorkstations } from './workstations.js';
+import { addWorkstations, backfillWorkstations, removeWorkstations } from './workstations.js';
+import { saveOfficeItems } from './furniture.js';
 import { runTrace } from './run-trace.js';
 import { createProjectSpace, maxSpaceFileBytes } from './project-space.js';
 import { createAccounts, sessionCookie } from './accounts.js';
@@ -18,8 +20,10 @@ import { createMailer } from './mailer.js';
 import { createMentionEmailDelivery } from './mention-email.js';
 import { scanAgents, resolveProviderExecutable } from '../collector/office-collector.mjs';
 import { collectorCommand, collectorPackageSpec } from './collector-command.js';
+import { bundledCollectorPackage } from './collector-package.js';
 import { createCollectorApi } from './collector-api.js';
 import { createSkillMarketplace, skillSources } from './skill-marketplace.js';
+import { createGithubIntegration } from './github-integration.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const data = resolve(process.env.OFFICE_DATA_DIR ?? join(root, 'data'));
@@ -44,11 +48,15 @@ if (collectorPort && (Boolean(certFile) !== Boolean(keyFile) || (!loopback && !c
 const tls = collectorPort && certFile ? {cert: readFileSync(certFile), key: readFileSync(keyFile)} : null;
 const collectorProtocol = tls ? 'https' : 'http';
 const collectorPackageArchive = process.env.OFFICE_COLLECTOR_PACKAGE_FILE
-  ? readFileSync(resolve(process.env.OFFICE_COLLECTOR_PACKAGE_FILE)) : null;
+  ? readFileSync(resolve(process.env.OFFICE_COLLECTOR_PACKAGE_FILE)) : bundledCollectorPackage();
 const collectorAddressHost = collectorHost.includes(':') ? '[' + collectorHost + ']' : collectorHost;
 const defaultCollectorAddress = process.env.OFFICE_COLLECTOR_PUBLIC_URL ||
   (['0.0.0.0','::'].includes(collectorHost) ? '' :
     `${collectorProtocol}://${collectorAddressHost}:${collectorPort}`);
+let defaultCollectorInstall = '';
+try {
+  if (collectorPort && defaultCollectorAddress) defaultCollectorInstall = collectorCommand({address:defaultCollectorAddress}, allowLanHttp, true).install;
+} catch { /* An incomplete public URL can still be corrected in the pairing form. */ }
 mkdirSync(data, {recursive: true, mode: 0o700});
 
 const store = openStore(join(data, 'office.sqlite'));
@@ -64,6 +72,7 @@ const settings = createSettings(store, {concurrencyOverride: concurrency});
 const workspace = createWorkspace(store);
 const space = createProjectSpace(store, data);
 const office = createOffice(store, settings, space);
+const github = createGithubIntegration(store);
 const skillMarketplace = createSkillMarketplace(store,office,data);
 const discovery = createDiscovery(store);
 let closing = false;
@@ -77,7 +86,7 @@ function scanLocal() {
   return scanPending;
 }
 const [codexExecutable, piExecutable] = await Promise.all(['codex', 'pi'].map(provider => resolveProviderExecutable(provider)));
-const scheduler = createScheduler({store, office, space, data, configuration: settings.runtime,
+const scheduler = createScheduler({store, office, space, github, data, configuration: settings.runtime,
   executable: codexExecutable || process.env.OFFICE_CODEX_BIN || 'codex', piExecutable: piExecutable || process.env.OFFICE_PI_BIN || 'pi',
   piProviderExtension: process.env.OFFICE_PI_PROVIDER_EXTENSION});
 const clients = new Set();
@@ -87,6 +96,7 @@ const mime = {
   'overview.js': 'text/javascript; charset=utf-8',
   'overview.css': 'text/css; charset=utf-8',
   'office-avatars.js': 'text/javascript; charset=utf-8',
+  'office-furniture.js': 'text/javascript; charset=utf-8',
   'office-presence.js': 'text/javascript; charset=utf-8',
   'office-scene.js': 'text/javascript; charset=utf-8',
   'office-model.js': 'text/javascript; charset=utf-8',
@@ -96,7 +106,9 @@ const mime = {
   'workspace.js': 'text/javascript; charset=utf-8',
   'navigation.js': 'text/javascript; charset=utf-8',
   'discovery-model.js': 'text/javascript; charset=utf-8',
+  'collector-guide.js': 'text/javascript; charset=utf-8',
   'agent-permissions.js': 'text/javascript; charset=utf-8',
+  'github-policy.js': 'text/javascript; charset=utf-8',
   'workspace.css': 'text/css; charset=utf-8',
   'style.css': 'text/css; charset=utf-8',
 };
@@ -216,7 +228,7 @@ function eventStream(req, res, url, user) {
 }
 
 const saveRoutes = {
-  '/api/agents': office.saveAgent,
+  '/api/agents': office.saveManagedAgent,
   '/api/teams': input => office.saveNamed('team', input),
   '/api/skills': input => office.saveNamed('skill', input),
   '/api/skills/download': skillMarketplace.download,
@@ -228,6 +240,8 @@ const saveRoutes = {
   '/api/humans': workspace.saveHuman,
   '/api/schedules': workspace.saveSchedule,
   '/api/layout/workstations': input => addWorkstations(store, input),
+  '/api/layout/workstations/remove': input => removeWorkstations(store, input),
+  '/api/layout/items': input => saveOfficeItems(store, input),
   '/api/discovery/scan': scanLocal,
 };
 
@@ -249,9 +263,11 @@ function workspaceState(user) {
   const workspaceData = workspace.snapshot();
   const configuration = settings.snapshot();
   const base = {...records, ...workspaceData, user, settings:configuration, unread:settings.inbox(false, user).unread};
-  if (user.role === 'admin') return {...base, mcpServers, ...discovery.snapshot(),
+  if (user.role === 'admin') return {...base, mcpServers, github:github.read(), ...discovery.snapshot(),
     collector:{listening:Boolean(collectorServer?.listening), port:collectorPort, protocol:collectorProtocol,
       loopback, defaultAddress:defaultCollectorAddress, packageSpec:collectorPackageSpec,
+      install:defaultCollectorInstall,
+      packageSource:'workspace',
       tunnelHost:['0.0.0.0','::'].includes(collectorHost) ? '127.0.0.1' : collectorAddressHost}};
   return {...base, agents:records.agents.map(({id, name, teamId}) => ({id, name, teamId})),
     skills:records.skills.map(({id, name, description}) => ({id, name, description})),
@@ -401,6 +417,12 @@ const server = createServer(async (req, res) => {
       const actor = path.startsWith('/api/') ? requireUser(req, path, spaceRoute) : null;
       const accountRoute = path.match(/^\/api\/users\/([a-f0-9-]+)$/);
       if (accountRoute) return json(res, accounts.update(accountRoute[1], input, actor));
+      const githubRoute = path.match(/^\/api\/settings\/integrations\/github\/(connect|disconnect|repository|remove-repository)$/);
+      if (githubRoute) {
+        const handler = {connect:github.connect, disconnect:github.disconnect,
+          repository:github.saveRepository, 'remove-repository':github.removeRepository}[githubRoute[1]];
+        return json(res, await handler(input, actor));
+      }
       if (Object.hasOwn(saveRoutes, path)) return json(res, await saveRoutes[path](input));
       if (path === '/api/layout/draft' || path === '/api/layout/publish') {
         return json(res, workspace.saveLayout(input, path.endsWith('/publish')));
@@ -410,10 +432,25 @@ const server = createServer(async (req, res) => {
       if (path === '/api/inbox/read') return json(res, settings.markInboxRead(input.through, actor));
       const settingRoute = path.match(/^\/api\/settings\/(workspace|workflow|runtime|notifications)$/);
       if (settingRoute) return json(res, settings.save(settingRoute[1], input));
-      const catalogueRoute = path.match(/^\/api\/settings\/(label|property)(?:\/([a-f0-9-]+)\/archive)?$/);
+      const catalogueRoute = path.match(/^\/api\/settings\/(label|property)(?:\/([a-f0-9-]+)\/(archive|delete))?$/);
       if (catalogueRoute) {
-        const [, kind, id] = catalogueRoute;
-        return json(res, id ? settings.archive(kind, id, input.archived) : settings.saveCatalogue(kind, input));
+        const [, kind, id, action] = catalogueRoute;
+        if (!id) return json(res, settings.saveCatalogue(kind, input));
+        return json(res, action === 'delete' ? settings.removeCatalogue(kind, id) : settings.archive(kind, id, input.archived));
+      }
+      const deleteResourceRoute = path.match(/^\/api\/(teams|skills|mcp-servers)\/([a-f0-9-]+)\/delete$/);
+      if (deleteResourceRoute) {
+        const [, resource, id] = deleteResourceRoute;
+        if (resource === 'teams') return json(res, office.deleteTeam(id));
+        if (resource === 'skills') {
+          const bundleId = store.get('skill', id)?.source?.bundleId;
+          const removed = office.deleteSkill(id);
+          if (typeof bundleId === 'string' && /^[a-f0-9-]{36}$/.test(bundleId)) {
+            rm(join(data, 'skill-packages', bundleId), {recursive: true, force: true}).catch(() => {});
+          }
+          return json(res, removed);
+        }
+        return json(res, office.deleteMcpServer(id));
       }
       if (path === '/api/machines') {
         if (!collectorServer?.listening) fail('采集接收端未启动', 409);
@@ -421,16 +458,18 @@ const server = createServer(async (req, res) => {
         const pairing = input.pairingMode === 'code' ? discovery.issuePairing(input) : discovery.issueMachine(input);
         if (!command) return json(res,pairing,201);
         return json(res,{machine:pairing.machine, code:pairing.code, expiresAt:pairing.expiresAt,
-          command:pairing.code ? command.login : command.launch(pairing.token),
-          restart:command.restart, loopback:command.loopback},201);
+          install:command.install, command:pairing.code ? command.login : command.launch(pairing.token),
+          restart:pairing.code ? command.restart : command.legacyRestart, loopback:command.loopback},201);
       }
       const machineRoute = path.match(/^\/api\/machines\/([a-f0-9-]+)\/revoke$/);
       if (machineRoute) return json(res, discovery.revoke(machineRoute[1]));
-      const candidateRoute = path.match(/^\/api\/candidates\/([a-f0-9-]+)\/(review|approve|dismiss)$/);
+      const machineDelete = path.match(/^\/api\/machines\/([a-f0-9-]+)\/delete$/);
+      if (machineDelete) return json(res, discovery.deleteMachine(machineDelete[1], actor));
+      const candidateRoute = path.match(/^\/api\/candidates\/([a-f0-9-]+)\/(connect|review|approve|dismiss)$/);
       if (candidateRoute) {
         const [, id, action] = candidateRoute;
-        if (action === 'review') return json(res, office.stageCandidate(id, input));
-        if (action === 'approve') return json(res, office.approveCandidate(id, input.reviewVersion));
+        if (action === 'connect') return json(res, discovery.connect(id));
+        if (action === 'review' || action === 'approve') fail('员工建档已移至智能体，请先接入运行器再创建并绑定员工', 409);
         return json(res, office.dismissCandidate(id));
       }
       const taskRoute = path.match(/^\/api\/tasks\/([a-f0-9-]+)\/(run|status|priority|comments)$/);

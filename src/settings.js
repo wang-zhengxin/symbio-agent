@@ -37,7 +37,7 @@ function date(value) {
 }
 
 export function createSettings(store, {concurrencyOverride} = {}) {
-  const {get, put, list, tx, event} = store;
+  const {get, put, remove, list, tx, event} = store;
 
   function read(section) {
     const saved = get('setting', section);
@@ -142,6 +142,32 @@ export function createSettings(store, {concurrencyOverride} = {}) {
     });
   }
 
+  function removeCatalogue(kind, id) {
+    choice(kind, ['label', 'property'], '配置类型');
+    return tx(() => {
+      const item = get(kind, id);
+      if (!item) fail('配置项不存在', 404);
+      if (kind === 'label') {
+        for (const task of list('task')) {
+          if (task.labelIds?.includes(id)) {
+            put('task', {...task, labelIds: task.labelIds.filter(labelId => labelId !== id)});
+          }
+        }
+      } else {
+        for (const task of list('task')) {
+          if (task.properties && Object.hasOwn(task.properties, id)) {
+            const properties = {...task.properties};
+            delete properties[id];
+            put('task', {...task, properties});
+          }
+        }
+      }
+      remove(kind, id);
+      event('catalogue.deleted', {kind, id, name: item.name});
+      return {kind, id, name: item.name};
+    });
+  }
+
   function taskMetadata(input, before) {
     const priority = choice(input.priority ?? before?.priority ?? read('workflow').defaultPriority, priorities, '优先级');
     const dueDate = input.dueDate === undefined ? before?.dueDate ?? '' : date(input.dueDate);
@@ -221,6 +247,6 @@ export function createSettings(store, {concurrencyOverride} = {}) {
     };
   }
 
-  return {read, runtime, save, saveCatalogue, archive, taskMetadata, nextTaskNumber, backfillTaskNumbers,
+  return {read, runtime, save, saveCatalogue, archive, removeCatalogue, taskMetadata, nextTaskNumber, backfillTaskNumbers,
     inbox, markInboxRead, snapshot};
 }

@@ -23,7 +23,7 @@ async function artifactPaths(root) {
   return files;
 }
 
-export function createScheduler({store, office, space, data, concurrency, executable, piExecutable = 'pi', piProviderExtension,
+export function createScheduler({store, office, space, github, data, concurrency, executable, piExecutable = 'pi', piProviderExtension,
   configuration = () => ({concurrency, timeoutMinutes: 15})}) {
   const workers = new Map();
   let scheduled = false;
@@ -74,7 +74,7 @@ export function createScheduler({store, office, space, data, concurrency, execut
       try {
         await runtime({emit, signal: controller.signal, run, cwd,
           executable: run.agent.runtime === 'pi' ? piExecutable : executable, piProviderExtension,
-          mcpServers, tools: companyTools(store, office, run)});
+          mcpServers, tools: companyTools(store, office, run, {github, signal:controller.signal})});
       } finally {
         emit('runtime.finished', {});
       }

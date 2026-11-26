@@ -105,17 +105,21 @@
   </dialog>
   <dialog class="modal" id="pairing" aria-labelledby="pairing-title">
     <div class="modal-layout">
-      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>配对新电脑</h2>
+      <header class="modal-header"><h2 id="pairing-title" tabindex="-1" autofocus>新机器接入指令</h2>
         <button class="modal-close" type="button" data-modal-close aria-label="关闭机器配对"><svg aria-hidden="true"><use href="#modal-close-icon"/></svg></button></header>
       <div class="modal-body fields">
-        <p>在新电脑执行下方 npm 命令，然后输入配对码。登录成功后自动开始采集；发现的 Agent 仍需人事审批。</p>
+        <p>在新电脑依次完成安装和登录。已安装对应版本时可直接执行 login 命令；登录后持续采集，再在平台接入运行器并绑定员工。</p>
+        <label>1. 安装客户端<textarea id="pair-install" rows="2" readonly spellcheck="false"></textarea></label>
+        <div class="actions"><button type="button" data-action="collector-copy" data-id="pair-install">复制安装命令</button></div>
         <label>一次性配对码<input id="pair-code" readonly spellcheck="false" aria-describedby="pair-expiry"></label>
         <p id="pair-expiry" class="description"></p>
         <p id="pair-route" class="description" hidden></p>
-        <label>首次启动<textarea id="pair-command" rows="4" readonly spellcheck="false"></textarea></label>
-        <div class="actions"><button type="button" id="pair-copy">复制启动命令</button><span id="pair-copy-status" role="status"></span></div>
-        <div><p>配对后重新启动</p><pre id="pair-restart"></pre></div>
-        <p class="description">也可安装 symbio-agent-collector@0.2.0 后使用 login、config、status、tasks list、tasks show、agents list、logout。任务查询以本次授权的范围为准。</p>
+        <div class="actions"><button type="button" data-action="collector-copy" data-id="pair-code">复制配对码</button></div>
+        <label>2. 登录并开始采集<textarea id="pair-command" rows="3" readonly spellcheck="false"></textarea></label>
+        <div class="actions"><button type="button" id="pair-copy">复制 login 命令</button><span id="pair-copy-status" role="status"></span></div>
+        <div><p>3. 以后恢复采集，无需重复登录</p><pre id="pair-restart"></pre>
+          <button type="button" data-action="collector-copy" data-id="pair-restart">复制运行命令</button></div>
+        <p class="description">安装后可直接使用 login、config、status、tasks、agents、logout。完整说明见采集机器区域的「接入与客户端使用指南」。</p>
       </div>
     </div>
   </dialog>

@@ -1,4 +1,5 @@
 import { officeStates, resolveAvatar } from './office-avatars.js';
+import { customDeskSeatPose, customSpecialSeats } from './office-furniture.js';
 
 const activeRun = run => ['running', 'stopping'].includes(run?.status);
 const byOwner = (rows, owner, matches) => {
@@ -55,7 +56,7 @@ export function officePresence(snapshot, overview) {
     if (review) return {state:'review', taskId:review.id};
     if (online.has(agent.id)) {
       return agent.runtime === 'observed'
-        ? {state:'observed', detail:candidateById.get(agent.candidateId)?.kind === 'process' ? '已检测到进程' : '已检测到安装'}
+        ? {state:'observed', detail:candidateById.get(agent.runnerCandidateId ?? agent.candidateId)?.kind === 'process' ? '已检测到进程' : '已检测到安装'}
         : {state:'idle'};
     }
     return {state:'offline'};
@@ -89,13 +90,34 @@ export const desks = [
   [5.15, .05], [7.85, .05], [7.85, -1.8],
   [-2.05, -5.7], [.85, -5.7],
 ];
-export const meetingTable = {x:6.45, z:5.55};
+export const meetingTable = {x:6.35, z:-5.7};
+export const breakTable = {x:6.65, z:5.95};
 export const chatTables = [{x:-4.35,z:5.65}, {x:-.6,z:5.65}];
 const loungeEntrance = {x:1.61,z:3.8};
-export const loungeSeats = chatTables.flatMap(({x,z}) => [-1,1].map(side => ({
+const breakRoomExit = [{x:4.1,z:4.74},{x:2.14,z:4.74},{x:2.14,z:2.3}];
+const chatSeats = chatTables.flatMap(({x,z}) => [-1,1].map(side => ({
   x:x+side*.76, z, angle:-side*Math.PI/2, seated:true, area:'lounge',
   exit:[{x:x+side*.76,z:6.5},{x:1.48,z:6.5},loungeEntrance],
 })));
+const breakTableSeats = [
+  ...[-1.1, 0, 1.1].map(dx => ({
+    x: breakTable.x + dx, z: breakTable.z - .86, angle: 0, seated: true, area: 'lounge',
+    exit: [{x: breakTable.x + dx, z: 4.55}, ...breakRoomExit],
+  })),
+  ...[-1.1, 0, 1.1].map(dx => ({
+    x: breakTable.x + dx, z: breakTable.z + .86, angle: Math.PI, seated: true, area: 'lounge',
+    exit: [{x: 4.1, z: breakTable.z + .86}, ...breakRoomExit],
+  })),
+  {
+    x: breakTable.x - 2.15, z: breakTable.z, angle: Math.PI / 2, seated: true, area: 'lounge',
+    exit: breakRoomExit,
+  },
+  {
+    x: breakTable.x + 2.15, z: breakTable.z, angle: -Math.PI / 2, seated: true, area: 'lounge',
+    exit: [{x: breakTable.x + 2.15, z: 4.55}, ...breakRoomExit],
+  },
+];
+export const loungeSeats = [...chatSeats, ...breakTableSeats];
 const loungeWalks = [
   {x:.98,z:6.66,angle:-.75,exit:[{x:1.48,z:5.35},loungeEntrance]},
   {x:-2.26,z:6.93,angle:2.1,exit:[{x:1.48,z:6.93},loungeEntrance]},
@@ -118,36 +140,168 @@ deskSeats.push({x:-6.9, z:-6.45, angle:0, seated:true, area:'desk',
   exit:[{x:-4.43,z:-6.45},{x:-4.43,z:-3.12},{x:-4.07,z:-3.12},{x:-4.07,z:aisleZ}]});
 export const baseWorkstations = deskSeats.length;
 export const privateOfficeSeatIndex = baseWorkstations - 1;
+export const customSeatIndexStart = 100;
 export const fixedOfficeSeats = {
   boss:{...deskSeats[privateOfficeSeatIndex],area:'private'},
   reception:{x:-7.09,z:5.45,angle:0,seated:true,area:'reception',exit:[]},
 };
 const wingColumnWidth = 2.85;
 export const officeEast = count => 10 + Math.ceil(Math.max(0,count-baseWorkstations)/2)*wingColumnWidth;
-export const workstationLabel = index => 'W-' + String(index + 1).padStart(2,'0');
+export const workstationLabel = index => index === privateOfficeSeatIndex ? '独立办公室'
+  : index >= customSeatIndexStart ? 'D-' + String(index - customSeatIndexStart + 1).padStart(2, '0')
+    : 'W-' + String(index + 1).padStart(2,'0');
 export function extraDesks(count) {
   return Array.from({length:Math.max(0,count-baseWorkstations)}, (_, index) => [
     11.26 + Math.floor(index/2)*wingColumnWidth, index % 2 === 0 ? 1.05 : -1.65,
   ]);
 }
+export function workstationZoneType(index, officeItems = []) {
+  if (index === privateOfficeSeatIndex) return 'work';
+  if (index >= customSeatIndexStart) {
+    const custom = officeItems.find(item => item.type === 'desk' && item.seatIndex === index);
+    return custom && custom.x >= 3.2 ? 'ai' : 'work';
+  }
+  if (index >= 6 && index <= 8) return 'ai';
+  if (index >= baseWorkstations) return 'ai';
+  return 'work';
+}
+export function zoneWorkstationIndices(type, count = baseWorkstations, officeItems = [], mode = 'default') {
+  if (!['work', 'ai'].includes(type)) return [];
+  const indices = [];
+  if (mode !== 'custom') {
+    const total = Math.max(baseWorkstations, count);
+    for (let i = 0; i < total; i++) {
+      if (workstationZoneType(i, officeItems) === type) indices.push(i);
+    }
+  }
+  for (const item of officeItems) {
+    if (item.type === 'desk' && Number.isInteger(item.seatIndex) && workstationZoneType(item.seatIndex, officeItems) === type) {
+      indices.push(item.seatIndex);
+    }
+  }
+  return indices;
+}
+export function physicalZoneCapacity(type, count = baseWorkstations, officeItems = [], mode = 'default') {
+  if (type === 'work' || type === 'ai') return zoneWorkstationIndices(type, count, officeItems, mode).length;
+  if (mode === 'custom') {
+    const special = customSpecialSeats(officeItems);
+    if (type === 'meeting') return special.meetingSeats.length;
+    if (type === 'lounge') return special.loungeSeats.length;
+    return 0;
+  }
+  if (type === 'meeting') return meetingSeats.length;
+  if (type === 'lounge') return loungeSeats.length;
+  return 0;
+}
+export function workstationPosition(index, count = baseWorkstations, officeItems = []) {
+  if (index >= customSeatIndexStart) {
+    const custom = officeItems.find(item => item.type === 'desk' && item.seatIndex === index);
+    if (custom) return [custom.x, custom.z];
+  }
+  if (index === privateOfficeSeatIndex) return [-6.88, -5.55];
+  if (index < desks.length) return desks[index];
+  const extras = extraDesks(Math.max(count, index + 1));
+  return extras[index - baseWorkstations] ?? desks[0];
+}
 
 const meetingSeats = [
-  [-1.17,-1.05], [1.17,-1.05], [-1.17,0], [1.17,0],
-  [-1.17,1.05], [1.17,1.05], [0,-1.92], [0,1.92],
+  [-1.02,-1.04], [0,-1.04], [1.02,-1.04],
+  [-1.02,1.04], [0,1.04], [1.02,1.04],
+  [-1.92,0], [1.92,0],
 ];
 const toward = (x, z, center) => Math.atan2(center.x - x, center.z - z);
 
-export function placeOfficeActors(actors, count = baseWorkstations) {
+export function placeOfficeActors(actors, count = baseWorkstations, officeItems = [], mode = 'default', customFloors = []) {
   const positions = new Map();
   const meetings = new Map();
   const pairs = new Map();
   const lobby = [];
+
+  if (mode === 'custom') {
+    const special = customSpecialSeats(officeItems);
+    const customDeskList = officeItems
+      .filter(item => item.type === 'desk' && Number.isInteger(item.seatIndex))
+      .map(item => ({seatIndex: item.seatIndex, pose: customDeskSeatPose(item)}));
+    const deskByIndex = new Map(customDeskList.map(entry => [entry.seatIndex, entry.pose]));
+    const claimedSeats = new Set();
+
+    const homeCustom = actor => {
+      if (actor.state === 'offline') { lobby.push(actor); return; }
+      if (deskByIndex.has(actor.seatIndex) && !claimedSeats.has(actor.seatIndex)) {
+        claimedSeats.add(actor.seatIndex);
+        positions.set(actor.key, deskByIndex.get(actor.seatIndex));
+        return;
+      }
+      // Fallback: if staff had a legacy built-in seatIndex, map onto any open self-built desk.
+      const free = customDeskList.find(entry => !claimedSeats.has(entry.seatIndex));
+      if (free) {
+        claimedSeats.add(free.seatIndex);
+        positions.set(actor.key, free.pose);
+      } else {
+        lobby.push(actor);
+      }
+    };
+
+    for (const actor of actors) {
+      if (actor.fixedSeat === 'boss') {
+        if (special.bossSeat) positions.set(actor.key, special.bossSeat);
+        else lobby.push(actor);
+        continue;
+      }
+      if (actor.fixedSeat === 'reception') {
+        if (special.receptionSeat) positions.set(actor.key, special.receptionSeat);
+        continue;
+      }
+      if (actor.mode === 'meeting_room' || actor.mode === 'face_to_face') {
+        const groups = actor.mode === 'meeting_room' ? meetings : pairs;
+        if (!groups.has(actor.sessionId)) groups.set(actor.sessionId, []);
+        groups.get(actor.sessionId).push(actor);
+      } else homeCustom(actor);
+    }
+
+    let mSeat = 0;
+    for (const group of meetings.values()) {
+      for (const actor of group.sort((a, b) => a.order - b.order)) {
+        const seat = special.meetingSeats[mSeat++];
+        if (seat) positions.set(actor.key, seat);
+        else homeCustom(actor);
+      }
+    }
+    let lSeat = 0;
+    for (const group of pairs.values()) {
+      for (const actor of group.sort((a, b) => a.order - b.order)) {
+        const seat = special.loungeSeats[lSeat++];
+        if (seat) positions.set(actor.key, seat);
+        else homeCustom(actor);
+      }
+    }
+    if (lobby.length && customFloors.length) {
+      const f = customFloors[0];
+      const cx = (f.x1 + f.x2) / 2;
+      const cz = (f.z1 + f.z2) / 2;
+      lobby.forEach((actor, index) => {
+        const col = index % 4;
+        const row = Math.floor(index / 4);
+        const x = Math.max(f.x1 + 0.6, Math.min(f.x2 - 0.6, cx - 1.5 + col * 1.0));
+        const z = Math.max(f.z1 + 0.6, Math.min(f.z2 - 0.6, cz - 0.5 + row * 1.0));
+        positions.set(actor.key, {x, z, angle: 0, seated: false, area: 'lobby'});
+      });
+    }
+    return positions;
+  }
+
   const seats = [...deskSeats, ...extraDesks(count).map(([x,z]) => ({
     x,z:z+.66,angle:Math.PI,seated:true,area:'desk',
     exit:[{x:x+1.32,z:z+.66},{x:x+1.32,z:aisleZ}],
   }))];
+  const customSeats = new Map();
+  for (const item of officeItems) {
+    if (item.type === 'desk' && Number.isInteger(item.seatIndex)) {
+      customSeats.set(item.seatIndex, customDeskSeatPose(item));
+    }
+  }
   const home = actor => {
-    const seat = seats[actor.seatIndex];
+    const seat = actor.seatIndex >= customSeatIndexStart ? customSeats.get(actor.seatIndex) : seats[actor.seatIndex];
     if (seat && actor.state !== 'offline') positions.set(actor.key, seat);
     else lobby.push(actor);
   };
@@ -204,31 +358,44 @@ export function createOfficeStrolls(random = Math.random) {
   const visits = new Map();
   let nextDeparture = 0;
   const minute = 60_000;
-  const nextVisit = now => now + (30 + random()*30)*minute;
+  // Each idle person gets an independent, widely staggered first break time,
+  // an independent post-break cooldown, and an independent stay duration.
+  const initialVisit = now => now + (1.5 + random()*28.5)*minute;
+  const nextVisit = now => now + (18 + random()*32)*minute;
+  const rescheduleOverdue = now => now + (4 + random()*26)*minute;
+  const stayDuration = () => (3.5 + random()*5.5)*minute;
+  const departureGap = () => (2.5 + random()*4.5)*minute;
 
-  return function stroll(eligible, now, reserved = []) {
+  return function stroll(eligible, now, reserved = [], customBreaks = null) {
     const unavailable = new Set(reserved.map(spotKey));
+    const pool = customBreaks ?? loungeBreaks;
     for (const key of due.keys()) if (!eligible.has(key)) due.delete(key);
-    for (const key of eligible) if (!due.has(key)) due.set(key, nextVisit(now));
+    for (const key of eligible) if (!due.has(key)) due.set(key, initialVisit(now));
     for (const [key, visit] of visits) {
-      if (!eligible.has(key) || now >= visit.returnAt || unavailable.has(spotKey(visit.position))) {
+      if (!eligible.has(key) || now >= visit.returnAt || unavailable.has(spotKey(visit.position)) ||
+          (customBreaks && !pool.some(p => spotKey(p) === spotKey(visit.position)))) {
         visits.delete(key);
         if (eligible.has(key)) due.set(key, nextVisit(now));
       }
     }
     const occupied = new Set([...visits.values()].map(visit => visit.position));
-    const available = loungeBreaks.filter(position => !occupied.has(position) && !unavailable.has(spotKey(position)));
+    const available = pool.filter(position => !occupied.has(position) && !unavailable.has(spotKey(position)));
     if (now < nextDeparture || !available.length) return visits;
     const ready = [...due].filter(([key, deadline]) => deadline <= now && !visits.has(key));
     if (ready.length) {
-      // A resumed tab can have many overdue timers. Dispatch one independently
-      // of roster order, then leave a random gap before the next departure.
-      const [key] = ready[Math.floor(random()*ready.length)];
+      // Dispatch at most one independently chosen person and re-randomize any
+      // other overdue timers into the future so people never head to the lounge
+      // together in a wave (e.g. after returning from a background tab).
+      const chosenIndex = Math.floor(random()*ready.length);
+      const [key] = ready[chosenIndex];
       const seats = available.filter(position => position.seated);
-      const choices = seats.length && random() < .75 ? seats : available;
+      const choices = seats.length && random() < .8 ? seats : available;
       const position = choices[Math.floor(random()*choices.length)];
-      visits.set(key, {position, returnAt:now + (5 + random()*5)*minute});
-      nextDeparture = now + (.5 + random())*minute;
+      visits.set(key, {position, returnAt:now + stayDuration()});
+      for (let i = 0; i < ready.length; i++) {
+        if (i !== chosenIndex) due.set(ready[i][0], rescheduleOverdue(now));
+      }
+      nextDeparture = now + departureGap();
     }
     return visits;
   };

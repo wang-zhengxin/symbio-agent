@@ -3,7 +3,11 @@
   "version": "0.2.0",
   "description": "Remote Agent discovery collector for Symbio Agent",
   "type": "module",
-  "bin": {"symbio-agent-collector": "./office-collector.mjs"},
+  "bin": {
+    "symbio": "./office-collector.mjs",
+    "symbio-cli": "./office-collector.mjs",
+    "symbio-agent-collector": "./office-collector.mjs"
+  },
   "files": ["office-collector.mjs"],
   "engines": {"node": ">=22.13"},
   "repository": {

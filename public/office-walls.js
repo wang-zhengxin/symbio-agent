@@ -1,12 +1,16 @@
 export const officeWallHeight = 2.78;
 
 // Split the union into non-overlapping rectangles so corners have one top surface.
+const roundCoord = value => Math.round(value * 10000) / 10000;
+
 export function wallSections(walls, thickness) {
   const half = thickness / 2;
   const rectangles = walls.map(wall => ({
-    x1:Math.min(wall.x1,wall.x2)-half, x2:Math.max(wall.x1,wall.x2)+half,
-    z1:Math.min(wall.z1,wall.z2)-half, z2:Math.max(wall.z1,wall.z2)+half,
-    color:wall.color,
+    x1: roundCoord(Math.min(wall.x1, wall.x2) - half),
+    x2: roundCoord(Math.max(wall.x1, wall.x2) + half),
+    z1: roundCoord(Math.min(wall.z1, wall.z2) - half),
+    z2: roundCoord(Math.max(wall.z1, wall.z2) + half),
+    color: wall.color,
   }));
   const coordinates = axis => [...new Set(rectangles.flatMap(rect => [rect[axis+'1'],rect[axis+'2']]))].sort((a,b) => a-b);
   const xs = coordinates('x'), zs = coordinates('z');

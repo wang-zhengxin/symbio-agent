@@ -1,25 +1,44 @@
-# Symbio Agent · Local Workspace
+# Symbio Agent · Local-First Multi-Agent Collaboration Workspace
 
-[简体中文](README.md)
+[简体中文](README.md) · [Deployment Guide (ZH)](docs/DEPLOYMENT.md) · [Agent Onboarding (ZH)](docs/AGENT_ONBOARDING.md) · [Remote Collector Guide (ZH)](docs/REMOTE_COLLECTOR_GUIDE.md) · [GitHub Integration (ZH)](docs/GITHUB_INTEGRATION.md)
 
-Symbio Agent is an independently built local workspace for AI agents and human collaborators. It runs tasks through Codex and Pi and manages members, squads, Skills, MCP, project files, and token budgets. Board, list, table, and 3D office views share task and execution events in SQLite and update through SSE.
+**Symbio Agent** is an independently built, local-first workspace where human teammates and AI agents (Codex, Pi, and observed CLI runtimes) collaborate inside an interactive **3D digital office**. It unifies spatial office building, desk assignment, squads, Skills, MCP tools, task boards, multi-round meetings, shared file review, and three-tier token budgets. All state and run events live in local SQLite and stream to browsers in real time over SSE.
 
-## Getting started
+---
 
-Use Node.js 22.13 or newer. Install the dependencies and start the service.
+## Highlights
+
+- **3D Digital Office & From-Scratch Space Builder**: Extend the built-in office layout or switch to **From-Scratch Custom Space** (`24m × 20m` architectural grid) and build an office in three steps: (1) draw orthogonal walls & `1.4m` doorways with magnetic corner/T-junction/box-alignment snapping (`Alt` to bypass), (2) lay multi-material floor slabs (`carpet`, `wood`, `stone`, `sage`) or autofill from drawn wall bounds in one click, and (3) place workstations (`D-01..`), 4 functional zone fixtures (boss desk, reception counter, conference table, break table), area rugs, and 8 decor items. Includes 2D A\* obstacle/doorway pathfinding, 24-hour dynamic lighting, and independent randomized break scheduling.
+- **Runtime Discovery & Remote Collection**: Auto-scans local PATH/processes and pairs remote hosts via the standalone `symbio` (`symbio-agent-collector`) CLI, recognizing Codex, Pi, Claude Code, Gemini CLI, OpenCode, Aider, Cursor Agent, Copilot CLI, Qwen Code, Kiro CLI, OpenClaw, WorkBuddy, and Antigravity. Connecting a runtime is decoupled from creating staff so multiple agents can share one runtime.
+- **Organization, Skills, MCP & GitHub Governance**: Manage mixed human/AI squads, download commit-pinned Skills from public catalogs or import `SKILL.md`, configure Streamable HTTP / stdio MCP tool allowlists, grant repo-scoped GitHub access, and safely delete squads, skills, MCP servers, labels, and custom properties with atomic cascading cleanup and audit logs.
+- **Task Flow, Meetings & Three-Way Delivery Review**: Switch between board, list, and table views (with CSV export), schedule one-time dispatches, break down subtasks, `@mention` humans or agents in threads, escalate 2-person chats into 3+ meeting room rounds, and approve shared project deliverables with baseline/current/draft three-way diff and conflict detection.
+- **Three-Tier Token Budgets & Local Security**: Enforce company, squad, and individual token allowances with pre-run reservations; bind to `127.0.0.1` by default with admin/member role isolation and read-only / run-directory sandbox modes.
+
+---
+
+## Getting Started
+
+### Prerequisites & Launch
+
+Requires **Node.js 22.13+**. Install dependencies, build the landing/guide page, and start the workspace:
 
 ```sh
 npm install
 npm start
 ```
 
-Open the landing page or go directly to the workspace. On first startup, Symbio seeds a product development team, a delivery notes skill, and five staff profiles. Create the first administrator account when you open the workspace. [Landing page](http://127.0.0.1:4317/) · [Workspace](http://127.0.0.1:4317/office)
+Open:
 
-Both administrators and members register with an email verification code. Members select **注册账号** (Register) on the sign-in page. Administrators approve accounts, change roles, or disable access under **设置 → 工作区管理 → 账号与权限** (Settings → Workspace Management → Accounts and Permissions). Existing users sign in with their username and password. Users who have yet to link an email address verify one before entering the workspace.
+- **Product Overview & Interactive Guide**: `http://127.0.0.1:4317/` (source in `apogee/`; run `npm run dev` for Vite preview or `npm run build` to compile)
+- **Symbio Local Workspace**: `http://127.0.0.1:4317/office`
 
-Users can enable email notifications for @mentions under **设置 → 通知** (Settings → Notifications). Email notifications are off by default. When posting a comment, the author can choose whether to email mentioned users who have opted in. The email includes the comment and a task link. Mentions also appear in the workspace inbox.
+On first startup, Symbio seeds a default development squad, a delivery-checklist skill, and initial staff profiles, and walks you through creating the first administrator account.
 
-Configure SMTP in the project root's `.env` file or in the service environment before running `npm start`. Use a sender address and credentials authorized by your mail provider.
+### Registration, Email Verification & SMTP
+
+Both the first administrator and subsequent members verify an email code during registration. Members request access via **Register** on the login page, and administrators approve, change roles, or disable accounts under **Settings → Workspace Management → Accounts and Permissions**. Users can opt in to `@mention` email alerts under **Settings → Notifications** (off by default; in-app inbox notifications are always delivered).
+
+Configure SMTP in `.env` at the repository root (or process environment) before running `npm start`:
 
 ```dotenv
 OFFICE_SMTP_HOST=smtp.example.com
@@ -29,162 +48,107 @@ OFFICE_SMTP_USER=workspace@example.com
 OFFICE_SMTP_PASS="your SMTP authorization code"
 ```
 
-Port 587 is the default and requires STARTTLS. Port 465 uses implicit TLS. Set `OFFICE_SMTP_SECURE=1` to enable implicit TLS on another port. For a relay that allows unauthenticated access, omit both the username and password. Verification codes expire after 10 minutes, requests for the same email address are spaced 60 seconds apart, and a service restart requires a new code.
+Port 587 uses STARTTLS by default; port 465 uses implicit TLS (`OFFICE_SMTP_SECURE=1` enables implicit TLS on other ports). Verification codes expire after 10 minutes with a 60-second cooldown per address.
 
-The landing page source is in `apogee/`. Use `npm run dev` to preview it with Vite and `npm start` to test navigation between the landing page and workspace. The landing page uses the Suisse font. [OnlineWebFonts](https://www.onlinewebfonts.com/fonts)
+### Environment Variables
 
-| Environment variable | Default | Purpose |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `OFFICE_PORT` | `4317` | Local HTTP port |
-| `OFFICE_DATA_DIR` | Project `data/` directory | Database and run directories |
-| `OFFICE_CONCURRENCY` | Workspace setting, initially `3` | Overrides the workspace concurrency limit |
-| `OFFICE_CODEX_BIN` | `codex` | Codex CLI path |
-| `OFFICE_PI_BIN` | `pi` | Pi CLI path |
-| `OFFICE_PI_PROVIDER_EXTENSION` | Unset | Absolute path to a trusted Pi model provider extension entry point |
-| `OFFICE_COLLECTOR_PORT` | Workspace port plus one, normally `4318` | Dedicated collector listener. Set to `0` to disable it |
+| `OFFICE_PORT` | `4317` | Local HTTP port (IPv4 loopback) |
+| `OFFICE_DATA_DIR` | `./data` | SQLite database, skill packages, project files, and run workspaces |
+| `OFFICE_CONCURRENCY` | Runtime setting (initially `3`) | Overrides maximum concurrent runs |
+| `OFFICE_CODEX_BIN` | `codex` | Path to Codex CLI |
+| `OFFICE_PI_BIN` | `pi` | Path to Pi CLI |
+| `OFFICE_PI_PROVIDER_EXTENSION` | Unset | Optional absolute path to a trusted Pi provider extension |
+| `OFFICE_COLLECTOR_PORT` | `OFFICE_PORT + 1` (`4318`) | Dedicated remote collector port (`0` to disable) |
 | `OFFICE_COLLECTOR_HOST` | `127.0.0.1` | Collector listen address |
 
-The workspace listens on IPv4 loopback. Run one service instance per data directory. The deployment guide covers initial setup, background services, remote collection, upgrades, backups, and recovery. [Deployment guide in Chinese](docs/DEPLOYMENT.md)
+> Run one service instance per data directory. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for daemon setup, upgrades, backups, and recovery.
 
-## Workspace
+---
 
-Navigation labels, page titles, and breadcrumbs use the same names. The following entries are available to administrators; members only see pages they are allowed to access.
+## 3D Digital Office & From-Scratch Space Builder
+
+### Live 3D Office (`Digital Office → Office`)
+
+- **Avatars & Live Presence**: Choose from 8 3D avatars with live pose previews. Characters reflect active task execution, thinking, review, face-to-face chats, and meeting room discussions in real time.
+- **Fixed Seats**: Reception stays at the reception desk; the human boss linked to the current administrator occupies the private office.
+- **24-Hour Dynamic Lighting**: Follows local or configured time zone across dawn, morning, noon, sunset, dusk, and night, with one-click toolbar lighting previews.
+- **Independent Staggered Breaks**: Each idle staff member has an independent randomized timer (30–60 min idle → 5–10 min lounge break) so characters never stand up in synchronized waves; new tasks or meetings immediately recall them.
+
+### Free Decoration & From-Scratch Space Builder (`Space & Workstations → Free Decorate`)
+
+Switch seamlessly between **Default Layout Extension** (`default`) and **From-Scratch Custom Space** (`custom`), saved atomically to SQLite and synced across Office, Space Layout, and Workstations:
+
+1. **Step 1 · Draw Walls (Before Floors)**:
+   - Draw orthogonal exterior and interior walls on a `24m × 20m` (`0.5m` grid) blueprint canvas in 4 palettes (`sage`, `slate`, `warm`, `plum`).
+   - **Magnetic Snapping & Seamless Corners**: Approaching an existing wall corner/segment (`≤ 0.85m`) or distant corner alignment axis (`≤ 0.72m`) magnetically snaps with a glowing ring, beacon pillar, and alignment guide; L-corners and T-junctions merge seamlessly across wall body, top cap, and baseboard with zero gaps. Hold `Alt` (`Option` on macOS) to temporarily disable snapping.
+   - **Doorways & Demolition**: Click any custom wall to cut a passable `1.4m` framed doorway (or use one-click centered doorway in the inspector); A\* pathfinding routes cleanly through doorways.
+2. **Step 2 · Lay Floors & Area Rugs**:
+   - Drag rectangular floor slabs in 4 procedural materials (`carpet`, `wood`, `stone`, `sage`) with corner/edge snapping, or click **Autofill Floor from Walls** to cover the wall bounding box in one click.
+   - Add 4-color area rugs (`sand`, `sage`, `slate`, `terracotta`) that never block walking or furniture placement.
+3. **Step 3 · Place Workstations, Functional Zones & Decor**:
+   - Furniture and rugs require floor coverage beneath their footprint and show real-time green/red collision previews.
+   - Includes assignable `desk` workstations (`D-01..`, protected when occupied), 4 functional zone fixtures (`boss_desk`, `reception`, `meeting_table`, `break_table`) that automatically seat corresponding roles/activities in custom mode, and 8 office decor items (`plant`, `bookcase`, `partition`, `cafe_table`, `sofa`, `whiteboard`, `server_rack`, `coffee_station`).
+   - **Shortcuts**: `R` rotate 90° · `Delete / Backspace` remove selected · `⌘/Ctrl + Z` undo · `⌘/Ctrl + Shift + Z` redo · `Esc` exit tool · hold `Alt` to bypass snap.
+
+---
+
+## Workspace, Governance & Execution
+
+### Navigation & Tasks
 
 | Group | Entries | Purpose |
 | --- | --- | --- |
-| Shortcuts | Search, New Task, Inbox, My Tasks, Chat | Find work, handle notifications, and open collaboration sessions |
-| Work | Tasks, Projects, Scheduled Tasks | Run and review tasks, track projects, and schedule one-time dispatch |
-| AI Team | Agents, Squads, Skills, Runtime, Discovery and Onboarding | Configure capabilities, teams, execution, and candidate approval |
-| Digital Office | Office, Space and Workstations | View live 3D activity, edit layouts, and manage desks |
-| Bottom navigation | Statistics, Settings, Help | Review token usage and budgets, workspace settings, and personal preferences |
+| Shortcuts | Search (`⌘K`), New Task, Inbox, My Tasks, Chat | Global search, `@mention` alerts, personal tasks, and multi-agent discussions |
+| Work | Tasks, Projects, Scheduled Tasks | Board/list/table views (CSV export), project calendar, one-time scheduled dispatch |
+| AI Team | Agents, Squads, Skills, Runtime, Discovery | Agent profiles/permissions, teams, skill library, concurrency, and runtime onboarding |
+| Digital Office | Office, Space & Workstations | Live 3D office, zone layout, free/from-scratch 3D builder, and workstation roster |
+| Footer | Statistics, Settings, Help | Three-tier token ledger, three-column settings, and workspace guide |
 
-The account button at the top right opens a compact menu with direct links to the profile, accounts and permissions, and settings. Click outside or press Esc to dismiss it; arrow keys move between entries.
+### Skills, MCP, GitHub & Safe Deletion
 
-### Task views
+- **Settings** uses a three-column layout across Personal Settings, Workspace Management, Task Configuration, Connections & Extensions (GitHub / MCP), and System Records (last 100 audit events).
+- **Atomic Cascading Deletion**: Squads, Skills, MCP servers, labels, and custom properties can be deleted cleanly with confirmation modals; all references across agents, humans, tasks, zones, and budgets are cleaned up atomically and audited.
+- **Skills & MCP**: Download commit-pinned skill directories from Anthropic Skills, OpenAI Plugins, Vercel Agent Skills, skills.sh, and SkillsMP (stored under `OFFICE_DATA_DIR/skill-packages/`), or import `SKILL.md` manually. Configure Streamable HTTP (`OFFICE_MCP_*` bearer env refs) or local stdio MCP servers with explicit tool allowlists.
+- **GitHub Access**: Connect the host's local `gh` login under **Settings → Integrations → GitHub** with per-repo operation grants that agents can narrow further, fully audited.
 
-- **Tasks** offers board, list, and table views and remembers the selected view in the browser. Lists support collapsible status groups. Tables support status grouping, column visibility, title or ID search, and CSV export of filtered or selected tasks.
-- **My Tasks** shows top-level tasks assigned to the human profile linked to the signed-in account. **Scheduled Tasks** shows tasks with a dispatch time; scheduling currently supports one-time dispatch.
-- Subtasks appear inside their parent task details rather than on the main task board. Views share task filters, details, comments, and status actions.
-- Open **Large-screen Mode** from Tasks or the team board on Projects to display the full-screen 3D office. Drag to change the camera angle and select a character to inspect its status and related task in a right-side panel. Exiting returns to the original page.
-
-### Digital office and projects
-
-
-- **3D office.** Digital Office → Office renders an isometric office with WebGL. Choose from eight avatars and preview their animations when creating or editing a human, agent, or onboarding profile. Each avatar has an independent randomized break schedule: after 30–60 minutes of continuous idle time, it finds an available break spot, can sit in the lounge, and returns after 5–10 minutes. Tasks and conversations take priority. Two participants sit face to face, and a third participant moves the discussion into the meeting room. Select an avatar or roster entry to see its status and related tasks. The floor plan shows the published custom layout.
-- **Fixed roles.** The receptionist stays at reception, and the human boss linked to the current administrator stays in the private office.
-- **Workstations.** Space and Workstations → Workstations shows the same 3D desks and staff assignments. New staff use available desks first. When all desks are taken, the office expands on the right. Administrators can add desks in batches, and both views update together.
-- **Projects.** See project progress, the team calendar, and the day's schedule. Projects can have an owner and due date. Tasks can have both a human owner and an agent assignee. Human owners can advance tasks manually and submit them for review.
-- **People and agents.** Use **Settings → Workspace Management → Members** to edit human profiles, filter and export the directory, and set availability. **Agents** shows configuration, runs, usage, and pending approvals. Pausing dispatch keeps queued tasks in place and lets active runs finish.
-- **Layout management.** Edit zones, capacity, team assignments, and display widgets. Save a draft to continue editing later or publish it to apply the configuration in Office.
-
-## Workspace settings
-
-Settings uses three columns: main navigation, settings categories, and content. On narrow screens, category buttons wrap and content remains scrollable.
-
-| Category | Pages |
-| --- | --- |
-| Personal Settings | Profile, Preferences, Notifications |
-| Workspace Management | General, Members, Accounts and Permissions |
-| Task Configuration | Task Statuses, Labels, Properties |
-| Connections and Extensions | MCP |
-| System Records | Operation History |
-
-Member profiles describe human and agent identities, roles, and team membership. Accounts and Permissions manages real users who can sign in. Skills, Squads, and Runtime have their own sidebar entries.
-
-- **General** manages the workspace name, description, operator, and task numbering. Codex and Pi use the workspace context captured when a run is queued. Task history retains its identifiers.
-- **Task Statuses**, **Labels**, and **Properties** let you change board stage names, set a default priority, and classify tasks. Custom fields support text, numbers, and single-select values. Archiving a field preserves existing values.
-- **Runtime** manages local concurrency, time limits, default token reservations, and local scan settings. **Squads** manages teams, **Statistics** manages usage and budgets, **Skills** manages skills, and **Settings → Connections and Extensions → MCP** manages tool connections.
-- **Notifications** controls personal @mention emails. Administrators can also configure workspace inbox event types. The inbox supports marking all notifications as read. **Operation History** shows recent administrative actions.
-- **Preferences** stores appearance, the default task view, and time zone in the current browser. Search tasks by ID or content, or filter by project, owner, priority, and label. Open a task to see its run history and post comments.
-
-## Agent discovery and onboarding
-
-Open **发现与入职** (Discovery and Onboarding). By default, Symbio scans the local machine at startup and every 10 seconds. Under Runtime, you can change the interval or switch to manual scans. Discovery checks the PATH, common installation directories, and relevant processes visible to the collector's system account. It recognizes Codex, Pi, Claude Code, Gemini CLI, OpenCode, Aider, Cursor Agent, Copilot CLI, Qwen Code, Kiro CLI, and OpenClaw. An installation can be linked to a staff profile across runs, while an observed process is identified for its current launch.
-
-A newly discovered candidate starts in the pending profile state. Fill out a profile manually or select **交给人事** (Assign to HR) to create and start a profile drafting task. The profile includes the name, personality, responsibilities, role, team, skills, and execution permissions. An administrator reviews and approves the draft before the candidate joins the staff roster.
-
-Remote discoveries and already running processes are available in observation mode. Personality and skills stay in the staff profile. For local Codex and Pi installations, an administrator can enable workspace-managed execution during onboarding. Dispatching a task then starts a new session. The collector reports hostname, operating system, installed tools, and process identifiers. Task data, conversations, command arguments, and token usage use their existing execution channels.
-
-## Collect from another machine
-
-The client version is `symbio-agent-collector@0.2.0` and requires Node.js 22.13+. Generated npm commands use the public registry by default. Set `OFFICE_COLLECTOR_PACKAGE_FILE` to serve a matching archive directly from the workspace for private deployments or versions not yet published. [CLI reference](collector/README.md)
-
-1. Make the collector endpoint reachable from the target machine. With the default loopback listener, open an SSH tunnel on the target machine and keep that terminal running. Replace `user@office-host` with the SSH username and address of the host running Symbio.
-
-   ```sh
-   ssh -N -L 4318:127.0.0.1:4318 user@office-host
-   ```
-
-2. In the workspace, open **发现与入职 → 配对新机器** (Discovery and Onboarding → Pair New Machine). Enter the machine name and the receiver address as seen from the target machine, then select the shell and task access scope: collection only, all projects read-only, or a single project read-only. For the tunnel above, enter `http://127.0.0.1:4318`.
-3. Select **生成配对码** (Generate Pairing Code). Run the **首次启动** (First Launch) npm command on the new machine and enter the code when prompted. Codes expire after 10 minutes and work once; commands do not embed a long-lived credential. After login, the client sends its first report and continues collecting. Confirm the machine is online under **采集机器** (Collector Machines). Discovered agents still require HR approval.
-
-Pairing is saved to `~/.agent-office/collector.json`. To resume collection, run the generated **配对后重新启动** (Restart After Pairing) command on the same machine under the same system account. You can revoke a machine's pairing from the workspace. [Remote deployment and troubleshooting in Chinese](docs/DEPLOYMENT.md#5-接入远程采集机器)
-
-After installing the matching client, use `config show`, `config set interval 30`, `login`, `status --json`, `tasks list --status in_progress`, `tasks show AG-12 --json`, `agents list` and `logout`. Without a global installation, append these commands to the generated `npx … -- symbio-agent-collector` prefix. Configuration supports `server`, `interval` (5–3600 seconds) and `allowHttp`; changing the server clears login. Task lists omit subtasks, while task details include them. Task access follows the pairing scope. Logout clears local credentials; server-side revocation invalidates other copies. Legacy `join` and `install` remain supported.
-
-For direct HTTPS access, set `OFFICE_COLLECTOR_HOST` on the Symbio host to its LAN IP or `0.0.0.0`, configure a trusted certificate and key with `OFFICE_COLLECTOR_TLS_CERT` and `OFFICE_COLLECTOR_TLS_KEY`, and enter the reachable HTTPS URL when pairing. Set `OFFICE_COLLECTOR_PUBLIC_URL` to prefill that URL. For HTTP testing on a trusted LAN, set `OFFICE_COLLECTOR_ALLOW_HTTP=1` so the generated command includes `--allow-http`.
-
-**WorkBuddy and Antigravity** installation and main-process discovery is supported. macOS system/user Applications folders are checked; `OFFICE_WORKBUDDY_BIN` and `OFFICE_ANTIGRAVITY_BIN` support custom executable locations. HR approval enrolls observation-only staff; task dispatch, internal execution telemetry and token usage require dedicated adapters. Upgrade remote collectors together with the server.
-
-The collector reads the process table on macOS and Linux and uses PowerShell CIM on Windows. The account and environment running it determine which processes are visible. The end-to-end collection flow has been verified on macOS.
-
-## Run a task
-
-1. Choose or create an agent under **AI 团队 → 智能体** (AI Team → Agents). Codex requires a signed-in CLI with App Server support. Pi requires a CLI with JSON event mode and a working model provider. Run `pi` and use `/login` to sign in to a provider, or configure a local model. Leave the model field blank to use the runner's local configuration.
-2. To try the workflow, select the demo runner for a staff profile. Its events are marked as demo events. It makes no model calls and incurs no token usage.
-3. Create a task under **Work → Tasks** with an assignee, acceptance criteria, and any prerequisites. Start the task and open Run Details to see the plan, tool activity, output, artifact paths, and runner errors.
-4. A successful run moves the task into review. Dependent tasks can start after it is approved. Failed tasks can be retried, and previous runs remain in history.
-
-Each run uses its own directory under `data/workspaces/<run ID>`. The UI shows that directory and any new files. The Codex sandbox enforces read-only access or writes limited to the run directory. Responsibility and skill descriptions guide agent behavior. HR, finance, and meeting turns run in read-only mode.
-
-Pi handles tasks and discussions using the profile's personality, responsibilities, and skills. Its runner disables built-in file and shell tools, organization management tools, and automatic extension loading. If your Pi login depends on a provider extension, set `OFFICE_PI_PROVIDER_EXTENSION` to its absolute entry point path when starting Symbio and enter the corresponding model ID, such as `provider/model`, in the profile. Pi uses the current user's sign-in configuration and runs the extension under the workspace account. Assign tasks that require HR or finance management tools to a Codex agent in the corresponding role.
-
-## Skills and MCP
-
-1. Under **AI 团队 → Skills** (AI Team → Skills), select **下载技能** (Download skills), choose a source, browse or search, then download directly into the skill library. Sources include [Anthropic Skills](https://github.com/anthropics/skills), [OpenAI Plugins](https://github.com/openai/plugins), [Vercel Agent Skills](https://github.com/vercel-labs/agent-skills), [skills.sh](https://skills.sh), and [SkillsMP](https://skillsmp.com). The last two require a search keyword. You can also upload a `SKILL.md` or paste its contents. Assign the downloaded skill in a staff profile. Symbio captures the skill text when a run is queued. Run Details shows that version in the prompt.
-2. Add an MCP server under **设置 → 连接与扩展 → MCP** (Settings → Connections and Extensions → MCP). Enter a Streamable HTTP endpoint (HTTPS or loopback HTTP) or a local stdio command (absolute executable path and a JSON array of arguments). Enter the exact names of the tools you want to allow. For HTTP Bearer authentication, set an `OFFICE_MCP_*` variable in the Symbio service environment and enter only its name in the UI. Use trusted stdio executables because they run under the workspace account.
-3. Assign the server in a Codex or Pi staff profile. Pi requires `builtin:mcp` support (verified with 1.5.1). MCP permissions apply to workspace-dispatched tasks. Symbio checks current assignments and enabled status at launch. Disabling a server affects future launches. To revoke access during an active run, stop the run from Run Details. The run timeline records when calls start, complete, or fail.
-
-Marketplace downloads pin a Git commit and save the entire skill directory, including scripts and reference files. Downloading the same repository and path again reuses the existing skill and preserves local edits. Skill cards link to the source version. Files live in `OFFICE_DATA_DIR/skill-packages/`; include this directory alongside the SQLite database in backups and migrations. Each skill is limited to 256 files and 16 MB, each file to 4 MB, and the skill text to 32,000 characters. Failed downloads are cleaned up.
-
-Assigned skills are copied into `.office-skills/<skill-id>/` in the run directory. Codex can read their supporting files. Pi receives the skill text; its built-in file and shell tools remain disabled, so scripts require corresponding runner tools. Downloading does not execute scripts. Manual import only saves Markdown text.
-
-These public sources require no API key. The server needs network access to the GitHub API, raw.githubusercontent.com, and the selected catalog. Rate limits and network failures appear in the UI with a retry option. Private repositories are not supported. skills.sh returns up to 50 results per search; use more specific keywords to narrow the results.
-
-## Shared project files
-
-- Open the shared workspace from the project list to upload files, preview text, or download previous versions. Uploading to an existing path creates a new version. Project settings can link to an HTTPS Git repository.
-- Dispatch captures the project files and approved outputs from prerequisite tasks. Codex reads copies under `.office-inputs/project/` and `.office-inputs/dependencies/` in its run directory. Save deliverables under `deliverables/`, using paths relative to that directory as shared paths. Pi receives a version list and short text excerpts in its prompt, and its text results can be submitted for review.
-- Pending Publication shows the delivery and lets reviewers compare the starting version, the current version, and the draft. Approval publishes the files together. If any file has changed since the run began, the reviewer can return the delivery for a rerun or approve it as a new version.
-- File contents are stored in `OFFICE_DATA_DIR/project-space/` and version metadata in the SQLite database. Individual files are limited to 16 MiB. Current versions per project are limited to 100 files and 128 MiB combined.
-
-## Project tasks and discussions
-
-- When creating a task, you can schedule a one-time dispatch and select an agent assignee. The task enters the queue at the scheduled time. If prerequisites are awaiting approval or the assignee is paused, dispatch waits until those conditions clear. Open a project's main task board from the project list.
-- Use the Subtasks section of Task Details to add or review smaller tasks. A Codex project lead can also create and dispatch subtasks during a run. Subtasks inherit the parent project and are run and reviewed separately. All subtasks must be approved or canceled before the parent can be approved.
-- Task Discussion supports posts, replies, and @mentions. Human mentions go to the workspace inbox. Agent mentions queue a reply in the same thread using the agent's budget. Codex can read and post comments during a run. Pi posts a separate comment after producing its task output and can also answer mentions asynchronously.
-
-## HR, finance, and collaboration
-
-- Assign staffing tasks to **HR**, such as hiring a test engineer for the product development team. HR uses organization tools to create regular staff profiles with read-only access by default. Administrators can also configure roles, personalities, responsibilities, skills, teams, and runners directly.
-- Assign usage reporting to **Finance**. Finance can query the ledger and adjust team or individual allowances within the company budget. The company budget is configured in the UI. The ledger records tokens reported by runners for each run. The budget is a cumulative internal allowance. Before a run starts, Symbio reserves tokens to enforce the limit, deducts usage as reports arrive, and releases the remaining reservation when the run ends.
-- Start a discussion in **Chat** with at least two agents. Two agents start a face-to-face session. Adding a third moves the group into a meeting room. Each agent takes a turn, with each turn queued and metered separately. You can create a follow-up task linked to the discussion. Ending the session cancels queued turns or stops the current turn.
-- Each staff member handles one run at a time. Different staff members can work concurrently up to the configured limit. After an unexpected service shutdown, active runs are marked interrupted and pending tasks are rescheduled.
-
-## Data flow and verification
-
-```text
-HTTP action → SQLite transaction (state and events)
-            → dispatch queue → local runner
-            → normalized run events → SQLite → SSE → browser
-```
-
-On first load, the browser reads a snapshot, then subscribes to server-sent events from the current cursor. The server replays missed events on reconnection. Run Details shows the latest 300 events. Codex uses the App Server stdio interface and dynamic tools. Pi uses a JSON event stream. Both runners use the same task and finance records for output and usage. [Codex App Server](https://learn.chatgpt.com/docs/app-server) · [Pi JSON event stream](https://pi.dev/docs/latest/json)
-
-Run Details shows the instructions supplied by the workspace, task or conversation input, stage timings, and tool call durations. Timings are based on received events. First output means the first visible text. New runs store the instructions at queue time. For historical runs, instructions are reconstructed from their queued configuration, and timings use the events on record.
+### Runtime Discovery & Remote Collector (`symbio`)
 
 ```sh
+npm install -g symbio-agent-collector@0.2.0
+symbio login 'http://127.0.0.1:4318' --run
+symbio tasks list --status in_progress --limit 20
+```
+
+Remote collectors support discovery reporting and read-only task/agent queries (remote task dispatch is not yet implemented). Offline, unbound machines can be safely deleted from the Collector Machines table while retaining historical runs and audit logs. See [docs/REMOTE_COLLECTOR_GUIDE.md](docs/REMOTE_COLLECTOR_GUIDE.md) and [collector/README.md](collector/README.md).
+
+### Sandboxed Runs, Shared Project Files & Budgets
+
+- Each run executes inside an isolated `data/workspaces/<run-id>` folder (use the built-in **Demo Runner** to validate workflows without consuming tokens).
+- Shared project files live in `OFFICE_DATA_DIR/project-space/` (≤ 16 MiB per file; ≤ 100 files / 128 MiB per project). Codex deliverables under `deliverables/` enter **Pending Publication** for baseline/current/draft three-way review and conflict detection.
+- **HR** (read-only) can hire new read-only staff via company tools; **Finance** (read-only) can inspect the ledger and adjust squad/individual allowances within the company budget.
+
+---
+
+## Architecture & Verification
+
+```text
+HTTP action → SQLite transaction (business state, 3D layout & audit events)
+            → dispatch queue → local runner (Codex App Server / Pi JSON / Demo)
+            → normalized run events → SQLite → SSE → browser views
+```
+
+- `src/`: Node.js ESM backend (HTTP/SSE server, SQLite store, scheduler, runners, 3D layout persistence, GitHub/MCP/Skills/collector)
+- `public/`: Workspace web app (Three.js 3D engine, magnetic from-scratch builder, A\* pathfinder, task/project/settings views)
+- `apogee/`: Product landing page, interactive 3D demo & usage guide (React + Vite + Tailwind)
+- `collector/`: Standalone remote collector & read-only CLI (`symbio` / `symbio-agent-collector`)
+- `test/`: Node built-in test runner suite
+
+```sh
+npm run typecheck
+npm run build
 npm test
 ```
 
-The test suite covers transaction rollback, concurrent token reservations and duplicate reports, meeting upgrades and cancellation, role-based tool permissions, Codex protocol replay, discovery and onboarding, shared delivery conflicts, skill downloads, desk assignment, navigation, and personal task filtering.
+The test suite verifies transaction rollback, concurrent token reservations and idempotent reporting, meeting upgrades/cancellation, role tool permissions, Codex/Pi protocol replay, discovery/remote collector, GitHub integration, skill downloads, shared delivery conflicts, cascading deletion, staggered break scheduling, 3D desk assignment, from-scratch custom space validation, magnetic corner snapping, and A\* doorway pathfinding.

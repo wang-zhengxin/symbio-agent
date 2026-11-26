@@ -1,7 +1,15 @@
 import { executionAdapterStatus, agentAuthorization, agentCanExecute } from './agent-permissions.js';
 import { officeOverview } from './overview.js';
 import { avatarFields } from './office-avatars.js';
-import { baseWorkstations, workstationLabel, officePresence, privateOfficeSeatIndex } from './office-presence.js';
+import {
+  baseWorkstations, customSeatIndexStart, workstationLabel, officePresence, privateOfficeSeatIndex,
+  physicalZoneCapacity, workstationZoneType, zoneWorkstationIndices, workstationPosition,
+} from './office-presence.js';
+import {
+  floorPalette, furnitureCatalog, furnitureByType, normalizeFloor, normalizeRotation, rugPalette,
+  validateDoorPlacement, validateFloorPlacement, validateItemPlacement, validateRugPlacement,
+  validateWallPlacement, wallAxis, wallLength, wallPalette,
+} from './office-furniture.js';
 
 import { navigationGroups, navigationFooter, navigationIcon, navigationLocation, settingsTitles } from './navigation.js';
 
@@ -18,7 +26,12 @@ const templatePositions = {
   delivery: {work: [15, 46], meeting: [40, 29], ai: [64, 51], lounge: [44, 77]},
   distributed: {work: [10, 38], meeting: [53, 23], ai: [66, 57], lounge: [25, 73]},
 };
-const sceneZoneOrigins = {work:[-3.2,.55], meeting:[6.45,5.6], ai:[6.6,-.95], lounge:[-3.4,5.8]};
+const templateCapacities = {
+  open: {work: 20, meeting: 10, ai: 20, lounge: 14},
+  delivery: {work: 28, meeting: 8, ai: 32, lounge: 8},
+  distributed: {work: 12, meeting: 16, ai: 24, lounge: 16},
+};
+const sceneZoneOrigins = {work:[-3.2,.55], meeting:[6.45,-5.65], ai:[6.6,-.95], lounge:[6.45,5.85]};
 const clamp = (value, low, high) => Math.min(high,Math.max(low,value));
 const pad = value => String(value).padStart(2, '0');
 const shiftDate = (key, days) => new Date(Date.parse(key + 'T12:00:00Z') + days * 86_400_000).toISOString().slice(0, 10);
@@ -29,8 +42,11 @@ export function createWorkspaceView(ui) {
   let employee = {tab: 'all', team: '', status: '', q: '', page: 1, selected: ''};
   let agents = {tab: 'all', team: '', model: '', q: ''};
   let calendarOffset = 0, selectedDay, period = 7;
-  let layoutDraft, layoutRevision, layoutDirty = false, layoutTab = 'space', layoutView = '3d';
-  let selectedZone, layoutZoom = 80, drag;
+  let layoutDraft, layoutRevision, layoutDirty = false, layoutTab = 'space';
+  let selectedZone;
+  let decorDraft = null, decorDirty = false, decorHistory = [], decorFuture = [];
+  let designTool = 'select', placingType = null, placingRotation = 0;
+  let wallColor = 'sage', floorMaterial = 'carpet', rugColor = 'sand', selectedDecor = null;
   let mobileOpen = false;
 
   const dateKey = value => new Intl.DateTimeFormat('sv-SE', {
@@ -225,6 +241,9 @@ export function createWorkspaceView(ui) {
       `<button type="button" data-action="${action}" data-id="${id}"${active === id ? ' aria-current="true"' : ''}>${escape(title)}</button>`).join('')}</div>`;
   }
 
+  const seatLabelFor = person => person.officeRole === 'boss' ? '独立办公室'
+    : Number.isInteger(person.seatIndex) ? workstationLabel(person.seatIndex) : '未分配';
+
   function employeeDetail(snapshot, selected) {
     if (!selected) return panel('员工详情', empty('选择一名员工，查看团队、任务及权限。'), '', 'symbio-person-detail');
     const assigned = snapshot.tasks.filter(task => (selected.type === 'human' ? task.humanId : task.assigneeId) === selected.id);
@@ -233,6 +252,7 @@ export function createWorkspaceView(ui) {
     const partnerIds = new Set(assigned.map(task => task.assigneeId).filter(id => id && id !== selected.id));
     const partners = roster(snapshot).filter(person => person.type === 'agent' && partnerIds.has(person.id));
     const action = selected.type === 'human' ? 'ws-human-edit' : 'agent-edit';
+    const detailActions = `<div class="symbio-row-actions">${blockButton(action, '编辑资料', selected.id)}${selected.type === 'agent' ? blockButton('agent-permissions', '权限设置', selected.id) : ''}</div>`;
     return panel('员工详情', `<div class="symbio-person-name"><h3>${escape(selected.name)}</h3>${statusLabel(selected.status)}</div>
       <p class="symbio-muted">${escape(selected.title)} / ${escape(name('teams', selected.teamId))}</p>
       <p class="symbio-muted">${escape(selected.email || (selected.type === 'agent' ? 'Agent · ' + selected.code : '—'))}</p>
@@ -240,8 +260,9 @@ export function createWorkspaceView(ui) {
         ${progress(percent(work, assigned.length), '工作负载')}<div class="symbio-inline symbio-muted"><span>${work} 项进行中</span><span>已完成 ${completed} 项</span></div></div>
       <div class="symbio-detail-part partners"><div class="symbio-inline"><h3>协作 Agent</h3>${link('ws-agents', '管理绑定 →')}</div>
         ${partners.length ? partners.map(person => `<div class="symbio-inline"><div><strong>${escape(person.name)}</strong><small>${escape(person.title)}</small></div>${statusLabel(person.status)}</div>`).join('') : empty('暂无共同指派的 Agent。')}</div>
+      <div class="symbio-detail-part symbio-inline"><span class="symbio-muted">专属工位</span>${label(seatLabelFor(selected))}</div>
       <div class="symbio-detail-part symbio-inline"><span class="symbio-muted">执行适配</span>${label(selected.type === 'human' ? '真人档案' : executionAdapterStatus(selected).label)}</div>${selected.type === 'agent' ? `<div class="symbio-detail-part symbio-inline"><span class="symbio-muted">执行授权</span>${label(agentAuthorization(selected).execution ? '管理员已授权' : '管理员未授权')}</div>` : ''}`,
-      link(action, '编辑资料', selected.id) + (selected.type === 'agent' ? link('agent-permissions', '权限设置', selected.id) : ''), 'symbio-person-detail');
+      detailActions, 'symbio-person-detail');
   }
 
   function people() {
@@ -262,10 +283,11 @@ export function createWorkspaceView(ui) {
       <div class="symbio-scroll-table"><table class="symbio-table symbio-directory"><thead><tr><th>员工 / 标识</th><th>类型</th><th>所属团队</th><th>状态</th><th>当前任务</th><th>操作</th></tr></thead>
       <tbody>${rows.map(person => {
         const task = snapshot.tasks.find(task => task.status === 'in_progress' && (person.type === 'human' ? task.humanId : task.assigneeId) === person.id);
+        const seatText = seatLabelFor(person);
         return `<tr${person.id === selected?.id ? ' class="selected"' : ''}><td>${link('ws-person', person.name, person.id)}
-          <small>${escape(person.code + ' · ' + person.title)}</small></td><td>${label(person.type === 'human' ? '真人' : 'Agent', person.type === 'human' ? 'violet' : 'green')}</td>
+          <small>${escape(person.code + ' · ' + person.title + (seatText !== '未分配' ? ' · ' + seatText : ''))}</small></td><td>${label(person.type === 'human' ? '真人' : 'Agent', person.type === 'human' ? 'violet' : 'green')}</td>
           <td>${escape(name('teams', person.teamId))}</td><td>${statusLabel(person.status)}</td><td>${task ? link('task-view', task.title, task.id) : '—'}</td>
-          <td>${link(person.type === 'human' ? 'ws-human-edit' : 'agent-edit', '编辑', person.id)}${person.type === 'agent' ? link('agent-permissions', '权限设置', person.id) : ''}</td></tr>`;
+          <td><div class="symbio-row-actions">${blockButton(person.type === 'human' ? 'ws-human-edit' : 'agent-edit', '编辑', person.id)}${person.type === 'agent' ? blockButton('agent-permissions', '权限', person.id) : ''}</div></td></tr>`;
       }).join('')}</tbody></table>${!rows.length ? empty('没有匹配的员工。') : ''}</div>
       <footer class="symbio-directory-footer"><span>显示 ${list.length ? (employee.page - 1) * 8 + 1 : 0}–${Math.min(employee.page * 8, list.length)} 项，共 ${list.length} 位员工</span>
         <div>${link('ws-employee-page','‹',String(employee.page - 1))}<strong>${employee.page} / ${pageCount}</strong>${link('ws-employee-page','›',String(employee.page + 1))}</div></footer>`,
@@ -289,7 +311,6 @@ export function createWorkspaceView(ui) {
     const all = roster(snapshot).filter(person => person.type === 'agent');
     const work = activeRuns(snapshot);
     const active = new Set(work.filter(run => run.status === 'running').map(run => run.agentId));
-    const approval = snapshot.candidates.filter(item => item.status === 'review');
     const reviews = new Set(snapshot.tasks.filter(task => task.status === 'review').map(task => task.assigneeId));
     const now = today();
     const recent = snapshot.runs.filter(run => (run.endedAt || run.startedAt) && dateKey(run.endedAt || run.startedAt) === now);
@@ -314,32 +335,25 @@ export function createWorkspaceView(ui) {
         <img src="/office-assets/${tint === 'warn' ? 'agent-agent1' : 'agent-agent'}.svg" alt=""></span>
         <div><h2>${escape(agent.name)}</h2><p>${escape(agent.title)}</p></div>${statusLabel(currentStatus)}</header>
         <div class="symbio-agent-model">${label(agent.runtime === 'observed' ? (agent.provider ? agent.provider + ' · ' : '') + executionAdapterStatus(agent).label : agent.model || ({demo:'演示运行器',codex:'Codex 默认',pi:'Pi 默认'})[agent.runtime] || agent.runtime)}
-          <span>团队 · ${escape(name('teams', agent.teamId))}</span></div>
+          <span>团队 · ${escape(name('teams', agent.teamId))}${Number.isInteger(agent.seatIndex) ? ' · 工位 ' + escape(workstationLabel(agent.seatIndex)) : ''}</span></div>
         <p class="symbio-muted">适配：${escape(executionAdapterStatus(agent).label)} · 授权：${agentAuthorization(agent).execution ? agentCanExecute(agent) ? '已允许执行' : '已授权，待适配' : '未允许执行'}</p><p class="symbio-agent-activity">${escape(task ? find('tasks', task.taskId)?.title || task.activity : review?.title || agent.scope || '暂无执行任务')}</p>
         <div class="symbio-agent-stats"><div><strong>${runs.length ? percent(runs.filter(r => r.status === 'completed').length, runs.length) + '%' : '—'}</strong><small>成功率</small></div>
           <div><strong>${number(agentUsage)}</strong><small>今日 Token</small></div><div><strong>${current.filter(run => run.status !== 'queued').length} 项</strong><small>执行中任务</small></div></div>
         <footer>${link('agent-edit', '编辑配置', agent.id)}${link('agent-permissions', '权限设置', agent.id)}${review ? link('task-view', '处理验收', review.id) :
           agentCanExecute(agent) ? link('ws-agent-pause', agent.paused ? '▷ 恢复派发' : 'Ⅱ 暂停', agent.id) : agent.runtime === 'observed' ? link('goto-discovery', '查看来源') : ''}</footer></article>`;
     });
-    if (agents.tab === 'approval') cards.push(...approval.filter(candidate => !agents.team || candidate.draft?.teamId === agents.team)
-      .filter(candidate => !agents.q || (candidate.draft?.name || '').toLowerCase().includes(agents.q.toLowerCase()))
-      .map(candidate => `<article class="symbio-panel symbio-agent-card">
-        <header><span class="symbio-agent-icon warn"><img src="/office-assets/agent-agent1.svg" alt=""></span>
-          <div><h2>${escape(candidate.draft?.name || candidate.provider)}</h2><p>候选 Agent</p></div>${statusLabel('approval')}</header>
-        <p class="symbio-agent-activity">${escape(candidate.draft?.scope || '等待确认入职档案')}</p>
-        <footer>${link('candidate-review', '查看档案', candidate.id)}${link('candidate-approve', '处理审批 →', candidate.id)}</footer></article>`));
     return intro('5:17', '智能体', '配置 Agent 的人格、模型、Skills 与权限，查看执行状态和交接记录。',
       blockButton('ws-runs', '运行记录') + blockButton('agent-edit', '＋ 创建 Agent', '', 'primary'),
       metrics([['在线 Agent', all.filter(person => !['offline','paused'].includes(person.status)).length + ' / ' + all.length,
         all.filter(person => ['offline','paused'].includes(person.status)).length + ' 个离线或已暂停'],
         ['今日执行成功率', terminal.length ? percent(terminal.filter(run => run.status === 'completed').length, terminal.length) + '%' : '—', terminal.length + ' 项执行已结束'],
         ['今日 Token 消耗', number(usage), budget?.limit > 0 ? '预算使用率 ' + percent(budget.spent,budget.limit) + '%' : '预算未设置'],
-        ['待人工审批', approval.length + [...reviews].filter(Boolean).length, '入职审批与任务验收', 'alert']]) +
+        ['待人工审批', [...reviews].filter(Boolean).length, '任务验收', 'alert']]) +
       `<div class="symbio-agent-controls">${tabs([['all','全部 Agent ' + all.length], ['running','运行中 ' + active.size],
-        ['approval','待审批 ' + (approval.length + [...reviews].filter(Boolean).length)], ['paused','已暂停 ' + all.filter(item => item.paused).length]], agents.tab, 'ws-agent-tab')}
+        ['approval','待审批 ' + ([...reviews].filter(Boolean).length)], ['paused','已暂停 ' + all.filter(item => item.paused).length]], agents.tab, 'ws-agent-tab')}
         ${filters(agents, 'agents', modelOptions)}</div><div class="symbio-agent-grid">${cards.join('') || empty('没有匹配的 Agent。')}</div>
         <section class="symbio-governance"><div><h2>安全始终由你掌控</h2><p>在配置中管理 Agent 的工具权限、运行器和文件访问范围。</p></div>
-          ${blockButton('goto-discovery', '发现与入职')}${blockButton('ws-policy', '管理权限策略 →')}</section>`, 'symbio-agents');
+          ${blockButton('goto-discovery', '发现与接入')}${blockButton('ws-policy', '管理权限策略 →')}</section>`, 'symbio-agents');
   }
 
   function editableLayout() {
@@ -353,35 +367,234 @@ export function createWorkspaceView(ui) {
     return layoutDraft;
   }
 
+  function editableDecor() {
+    if (!decorDirty) {
+      const snap = data();
+      decorDraft = {
+        mode: snap?.officeMode === 'custom' ? 'custom' : 'default',
+        floors: structuredClone(snap?.officeFloors ?? []),
+        items: structuredClone(snap?.officeItems ?? []),
+        walls: structuredClone(snap?.officeWalls ?? []),
+        rugs: structuredClone(snap?.officeRugs ?? []),
+      };
+    }
+    return decorDraft;
+  }
+
+  function mutateDecor(fn) {
+    const current = editableDecor();
+    decorHistory.push(structuredClone(current));
+    if (decorHistory.length > 30) decorHistory.shift();
+    decorFuture = [];
+    fn(current);
+    decorDirty = true;
+    render();
+  }
+
+  function nextDraftSeatIndex(items, snapshot) {
+    const used = new Set(items.filter(i => i.type === 'desk' && Number.isInteger(i.seatIndex)).map(i => i.seatIndex));
+    for (const p of [...(snapshot.agents ?? []), ...(snapshot.humans ?? [])]) {
+      if (Number.isInteger(p.seatIndex)) used.add(p.seatIndex);
+    }
+    let idx = customSeatIndexStart;
+    while (used.has(idx)) idx++;
+    return idx;
+  }
+
+  function rotateSelectedOrPlacing(step = 90) {
+    if (designTool === 'place' && placingType) {
+      placingRotation = normalizeRotation(placingRotation + step);
+      render();
+      return;
+    }
+    if (selectedDecor?.kind !== 'item') return;
+    const decor = editableDecor();
+    const target = decor.items.find(item => item.id === selectedDecor.id);
+    if (!target) return;
+    const nextRot = normalizeRotation(target.rotation + step);
+    const wingCount = data().workstationCount ?? baseWorkstations;
+    const check = validateItemPlacement({...target, rotation: nextRot}, decor.items, wingCount, target.id, decor.walls, decor.mode, decor.floors);
+    if (!check.ok) return;
+    mutateDecor(draft => {
+      const entry = draft.items.find(item => item.id === selectedDecor.id);
+      if (entry) entry.rotation = nextRot;
+    });
+  }
+
+  function deleteSelectedDecor(target = selectedDecor) {
+    if (!target) return;
+    const decor = editableDecor();
+    if (target.kind === 'item') {
+      const item = decor.items.find(entry => entry.id === target.id);
+      if (!item) return;
+      const assigned = seatAssignments(data());
+      if (item.type === 'desk' && Number.isInteger(item.seatIndex) && assigned.has(item.seatIndex)) {
+        throw new Error(`工位 ${workstationLabel(item.seatIndex)} 已有「${assigned.get(item.seatIndex).name}」入座，无法删除`);
+      }
+      mutateDecor(draft => {
+        const idx = draft.items.findIndex(entry => entry.id === target.id);
+        if (idx !== -1) draft.items.splice(idx, 1);
+      });
+    } else if (target.kind === 'floor') {
+      const remainingFloors = decor.floors.filter(entry => entry.id !== target.id);
+      if (decor.mode === 'custom') {
+        const wingCount = data().workstationCount ?? baseWorkstations;
+        const blockedItem = decor.items.find(item => !validateItemPlacement(item, decor.items, wingCount, item.id, decor.walls, 'custom', remainingFloors).ok);
+        if (blockedItem) {
+          const spec = furnitureByType[blockedItem.type];
+          throw new Error(`该地板上仍有「${spec?.name ?? blockedItem.type}」，请先移走或删除后再拆除地板`);
+        }
+        const blockedRug = decor.rugs.find(rug => !validateRugPlacement(rug, wingCount, 'custom', remainingFloors).ok);
+        if (blockedRug) {
+          throw new Error('该地板上仍有区域地毯，请先移除地毯后再拆除地板');
+        }
+      }
+      mutateDecor(draft => {
+        const idx = draft.floors.findIndex(entry => entry.id === target.id);
+        if (idx !== -1) draft.floors.splice(idx, 1);
+      });
+    } else if (target.kind === 'wall') {
+      mutateDecor(draft => {
+        const idx = draft.walls.findIndex(entry => entry.id === target.id);
+        if (idx !== -1) draft.walls.splice(idx, 1);
+      });
+    } else if (target.kind === 'rug') {
+      mutateDecor(draft => {
+        const idx = draft.rugs.findIndex(entry => entry.id === target.id);
+        if (idx !== -1) draft.rugs.splice(idx, 1);
+      });
+    }
+    if (selectedDecor?.kind === target.kind && selectedDecor?.id === target.id) selectedDecor = null;
+  }
+
+  function seatAssignments(snapshot) {
+    const staff = officePresence(snapshot, officeOverview(snapshot, null)).filter(person => person.kind !== 'system');
+    return new Map(staff.filter(person => Number.isInteger(person.seatIndex)).map(person => [person.seatIndex, person]));
+  }
+
+  function zoneSeatStats(zone, snapshot, assigned = seatAssignments(snapshot)) {
+    const count = snapshot.workstationCount ?? baseWorkstations;
+    const items = snapshot.officeItems ?? [];
+    const mode = snapshot.officeMode === 'custom' ? 'custom' : 'default';
+    const isDeskZone = zone.type === 'work' || zone.type === 'ai';
+    const indices = zoneWorkstationIndices(zone.type, count, items, mode);
+    const total = physicalZoneCapacity(zone.type, count, items, mode);
+    if (isDeskZone) {
+      const occupied = indices.filter(index => assigned.has(index)).length;
+      return {isDeskZone: true, total, occupied, remaining: Math.max(0, total - occupied), indices};
+    }
+    const model = officeOverview(snapshot, null);
+    const active = Math.min(total, (model.rooms[zone.type] ?? []).length);
+    return {isDeskZone: false, total, occupied: active, remaining: Math.max(0, total - active), indices: []};
+  }
+
   function layoutSceneZones() {
+    const snapshot = data();
+    const assigned = seatAssignments(snapshot);
+    const counts = {};
     return editableLayout().zones.map(zone => {
-      const [originX,originZ] = sceneZoneOrigins[zone.type];
-      const [planX,planY] = templatePositions.open[zone.type];
-      return {id:zone.id, name:zone.name, visible:zone.visible, selected:zone.id === selectedZone,
-        x:clamp(originX + (zone.x-planX)*.20,-8.8,9), z:clamp(originZ + (zone.y-planY)*.17,-6.6,7.3)};
+      const [originX, originZ] = sceneZoneOrigins[zone.type] ?? sceneZoneOrigins.work;
+      const idx = counts[zone.type] ?? 0;
+      counts[zone.type] = idx + 1;
+      const offsetX = idx ? ((idx % 2 ? 1 : -1) * Math.ceil(idx / 2) * 1.4) : 0;
+      const offsetZ = idx ? (Math.floor((idx - 1) / 2) * 1.1) : 0;
+      const stats = zoneSeatStats(zone, snapshot, assigned);
+      const suffix = stats.isDeskZone ? ` · 余 ${stats.remaining}` : ` · ${stats.total} 席`;
+      return {
+        id: zone.id, name: zone.name, label: zone.name + suffix,
+        title: `${zone.name}（${stats.isDeskZone ? `共 ${stats.total} 个实体工位，已占 ${stats.occupied}，剩余 ${stats.remaining}` : `共 ${stats.total} 个固定席位`}）`,
+        visible: zone.visible, selected: zone.id === selectedZone,
+        x: clamp(originX + offsetX, -8.8, 9), z: clamp(originZ + offsetZ, -6.6, 7.3),
+      };
+    });
+  }
+
+  function layoutSceneDesks() {
+    const snapshot = data();
+    const count = snapshot.workstationCount ?? baseWorkstations;
+    const items = snapshot.officeItems ?? [];
+    const mode = snapshot.officeMode === 'custom' ? 'custom' : 'default';
+    const assigned = seatAssignments(snapshot);
+    const activeKey = ui.selectedOfficeActor();
+    const indices = [
+      ...(mode === 'custom' ? [] : Array.from({length: count}, (_, i) => i)),
+      ...items.filter(item => item.type === 'desk' && Number.isInteger(item.seatIndex)).map(item => item.seatIndex),
+    ];
+    return indices.map(index => {
+      const [x, z] = workstationPosition(index, count, items);
+      const person = assigned.get(index);
+      const code = workstationLabel(index);
+      const zoneTitle = zoneNames[workstationZoneType(index, items)];
+      return {
+        id: 'desk:' + index, x, z,
+        actorKey: person?.key ?? '',
+        selected: Boolean(person && person.key === activeKey),
+        code: index === privateOfficeSeatIndex ? '独立' : code,
+        occupant: person ? person.name.replace(/^老板 · /, '') : '',
+        title: person ? `${code}（${zoneTitle}）· ${person.name}` : `${code}（${zoneTitle}）· 空置工位`,
+      };
     });
   }
 
   const officeViewport = (id, preview, label) => `<div id="${id}" class="office-3d-viewport"
     data-layout-preview="${preview}" aria-label="${label}"><p class="office-scene-loading">正在载入 3D 办公室…</p></div>`;
 
+  function removableWorkstations(snapshot, assigned = seatAssignments(snapshot)) {
+    if (snapshot.officeMode === 'custom') return 0;
+    const count = snapshot.workstationCount ?? baseWorkstations;
+    const minCount = [...assigned.keys()].filter(idx => idx < customSeatIndexStart)
+      .reduce((min, idx) => Math.max(min, idx + 1), baseWorkstations);
+    return Math.max(0, count - minCount);
+  }
+
   function workstations(snapshot) {
     const count = snapshot.workstationCount ?? baseWorkstations;
-    const staff = officePresence(snapshot,officeOverview(snapshot,null)).filter(person => person.kind !== 'system');
-    const assigned = new Map(staff.filter(person => Number.isInteger(person.seatIndex))
-      .map(person => [person.seatIndex, person]));
-    const rows = Array.from({length:count}, (_, index) => {
+    const items = snapshot.officeItems ?? [];
+    const mode = snapshot.officeMode === 'custom' ? 'custom' : 'default';
+    const customDeskItems = items.filter(item => item.type === 'desk' && Number.isInteger(item.seatIndex));
+    const totalDesks = mode === 'custom' ? customDeskItems.length : count + customDeskItems.length;
+    const assigned = seatAssignments(snapshot);
+    const removable = removableWorkstations(snapshot, assigned);
+    const workIndices = zoneWorkstationIndices('work', count, items, mode);
+    const aiIndices = zoneWorkstationIndices('ai', count, items, mode);
+    const workFree = workIndices.filter(i => !assigned.has(i)).length;
+    const aiFree = aiIndices.filter(i => !assigned.has(i)).length;
+    const allIndices = [
+      ...(mode === 'custom' ? [] : Array.from({length: count}, (_, i) => i)),
+      ...customDeskItems.map(item => item.seatIndex),
+    ];
+    const rows = allIndices.map(index => {
       const person = assigned.get(index);
       const key = person?.key;
       const reserved = index === privateOfficeSeatIndex;
-      const caption = `<span>${reserved ? '独立办公室' : workstationLabel(index)}</span><strong>${escape(person?.name ?? (reserved ? '老板专用' : '空置'))}</strong>
-        <small>${person ? person.kind === 'agent' ? 'Agent' : '真人' : reserved ? '保留座位' : '可分配'}</small>`;
+      const isCustom = index >= customSeatIndexStart;
+      const expanded = !isCustom && index >= baseWorkstations;
+      const zoneTitle = reserved ? '独立办公室'
+        : isCustom ? (workstationZoneType(index, items) === 'ai' ? 'AI 运行区 · 自由布置' : '研发协作区 · 自由布置')
+          : workstationZoneType(index, items) === 'ai' ? (expanded ? 'AI 运行区 · 扩建' : 'AI 运行区') : '研发协作区';
+      const tail = person
+        ? `<small>${person.kind === 'agent' ? 'Agent' : '真人'}</small>`
+        : expanded
+          ? `<button type="button" class="seat-delete-btn" data-action="ws-workstation-delete" data-id="${index}" title="删除此扩建空位">删除</button>`
+          : isCustom
+            ? `<button type="button" class="seat-delete-btn" data-action="ws-layout-tab" data-id="decorate" title="前往自由布置调整">调整</button>`
+            : `<small>${reserved ? '保留' : '空余'}</small>`;
+      const caption = `<span class="seat-code">${workstationLabel(index)}</span>
+        <span class="seat-occupant"><strong>${escape(person?.name ?? (reserved ? '老板专用' : '空置工位'))}</strong><small>${escape(zoneTitle)}</small></span>
+        ${tail}`;
       return person ? `<li><button type="button" data-action="office-person" data-id="${escape(key)}"
         aria-pressed="${ui.selectedOfficeActor() === key}">${caption}</button></li>` : `<li><div>${caption}</div></li>`;
     }).join('');
+    const headerControls = mode === 'custom'
+      ? `<div class="symbio-workstation-head-actions">${blockButton('ws-layout-tab', '＋ 自由摆放工位', 'decorate', 'primary')}</div>`
+      : `<div class="symbio-workstation-head-actions">
+        ${removable > 0 ? blockButton('ws-workstations-remove', '− 缩减') : ''}
+        ${blockButton('ws-layout-tab', '自由摆放', 'decorate')}
+        ${blockButton('ws-workstations-add', '＋ 扩建工位', '', 'primary')}
+      </div>`;
     return `<div class="symbio-workstation-grid">
       <section class="symbio-panel symbio-workstation-preview">
-        <header class="symbio-panel-head"><h2>3D 工位预览</h2>
+        <header class="symbio-panel-head"><h2>3D 工位实景</h2>
           <div class="symbio-workstation-controls">
             <button type="button" data-action="office-orbit" data-id="-1" aria-label="向左旋转">↶</button>
             <button type="button" data-action="office-orbit" data-id="1" aria-label="向右旋转">↷</button>
@@ -389,11 +602,338 @@ export function createWorkspaceView(ui) {
             <button type="button" data-action="office-zoom-reset" aria-label="还原">还原</button>
             <button type="button" data-action="office-zoom-in" aria-label="放大">＋</button>
           </div></header>
-        ${officeViewport('office-3d-viewport','seats','3D 工位预览')}
+        ${officeViewport('office-3d-viewport','seats','3D 工位实景')}
       </section>
-      ${panel('工位分配', `<p class="symbio-muted">${count} 个工位 · ${assigned.size} 个已分配 · ${count-assigned.size} 个空置</p>
-        <ul class="symbio-workstation-roster">${rows}</ul>`, blockButton('ws-workstations-add','＋ 新增工位','','primary'))}
+      ${panel('工位分配', `<p class="symbio-muted">共 ${totalDesks} 个实体工位 · 已占 ${assigned.size} · 剩余 ${Math.max(0, totalDesks - assigned.size)}（研发区余 ${workFree} · AI 区余 ${aiFree}）</p>
+        ${rows ? `<ul class="symbio-workstation-roster">${rows}</ul>` : empty('自建空间中尚未摆放工位桌椅，前往「自由布置」放置即可自动分配。')}`, headerControls)}
     </div>`;
+  }
+
+  function decorateWorkspace(snapshot) {
+    const decor = editableDecor();
+    const {mode, floors, items, walls, rugs} = decor;
+    const isCustom = mode === 'custom';
+    const assigned = seatAssignments(snapshot);
+    const selectedItem = selectedDecor?.kind === 'item' ? items.find(i => i.id === selectedDecor.id) : null;
+    const selectedFloor = selectedDecor?.kind === 'floor' ? floors.find(f => f.id === selectedDecor.id) : null;
+    const selectedWall = selectedDecor?.kind === 'wall' ? walls.find(w => w.id === selectedDecor.id) : null;
+    const selectedRug = selectedDecor?.kind === 'rug' ? rugs.find(r => r.id === selectedDecor.id) : null;
+    const seatItems = furnitureCatalog.filter(item => item.category === 'seat');
+    const zoneItems = furnitureCatalog.filter(item => item.category === 'zone');
+    const decorItems = furnitureCatalog.filter(item => item.category === 'decor');
+    const deskCount = items.filter(i => i.type === 'desk').length;
+    const decorCount = items.length - deskCount;
+
+    const buildToolBtn = (tool, title, sub) => `<button type="button" class="symbio-decor-card" data-action="ws-decor-mode" data-id="${tool}" aria-pressed="${designTool === tool}">
+      <strong>${escape(title)}</strong><small>${escape(sub)}</small></button>`;
+    const catalogButton = (spec, wide = false) => `<button type="button" class="symbio-decor-card${wide ? ' is-wide' : ''}" data-action="ws-decor-tool" data-id="${spec.type}" aria-pressed="${designTool === 'place' && placingType === spec.type}">
+      <strong>${escape(spec.name)}</strong>
+      <small>${spec.width}×${spec.depth}m${spec.category === 'seat' ? ' · 可入座' : ''}</small>
+    </button>`;
+
+    const wallSwatches = designTool === 'wall'
+      ? `<div class="symbio-swatch-row" aria-label="墙面颜色">${Object.entries(wallPalette).map(([k, title]) =>
+        `<button type="button" class="symbio-swatch" data-swatch="wall-${k}" data-action="ws-wall-color" data-id="${k}" aria-pressed="${wallColor === k}">${escape(title.replace('墙', ''))}</button>`).join('')}</div>`
+      : '';
+    const floorSwatches = designTool === 'floor'
+      ? `<div class="symbio-swatch-row" aria-label="地板材质">${Object.entries(floorPalette).map(([k, title]) =>
+        `<button type="button" class="symbio-swatch" data-swatch="floor-${k}" data-action="ws-floor-material" data-id="${k}" aria-pressed="${floorMaterial === k}">${escape(title)}</button>`).join('')}</div>`
+      : '';
+    const rugSwatches = designTool === 'rug'
+      ? `<div class="symbio-swatch-row" aria-label="地毯颜色">${Object.entries(rugPalette).map(([k, title]) =>
+        `<button type="button" class="symbio-swatch" data-swatch="rug-${k}" data-action="ws-rug-color" data-id="${k}" aria-pressed="${rugColor === k}">${escape(title.replace('地毯', ''))}</button>`).join('')}</div>`
+      : '';
+
+    const modeSwitch = `<div class="symbio-mode-switch" role="group" aria-label="空间建造模式">
+      <button type="button" data-action="ws-decor-space-mode" data-id="default" aria-pressed="${!isCustom}">默认户型扩展</button>
+      <button type="button" data-action="ws-decor-space-mode" data-id="custom" aria-pressed="${isCustom}">从零自建空间</button>
+    </div>`;
+
+    const paletteGroups = isCustom
+      ? `<p class="symbio-decor-step-note">按顺序自建办公空间：先画墙体与门洞 → 再铺设地板 → 最后摆放工位与摆件。</p>
+        <div class="symbio-decor-group"><h3>1. 绘制墙面（可先于地板）</h3>
+          <div class="symbio-decor-catalog">
+            ${buildToolBtn('wall', '画正交墙', '拉线建外/隔墙')}
+            ${buildToolBtn('door', '开门洞', '1.4m 可通行')}
+            ${buildToolBtn('erase-wall', '拆墙', '点击拆除')}
+          </div>
+          ${wallSwatches}
+        </div>
+        <div class="symbio-decor-group"><h3>2. 铺设地板与地毯</h3>
+          <div class="symbio-decor-catalog">
+            ${buildToolBtn('floor', '铺地板', '拖拽铺矩形')}
+            ${buildToolBtn('erase-floor', '拆地板', '点击拆除')}
+            ${buildToolBtn('rug', '铺地毯', '区域地毯')}
+          </div>
+          ${floorSwatches}${rugSwatches}
+          <button type="button" class="symbio-decor-helper-btn" data-action="ws-floor-autofill"${walls.length < 2 ? ' disabled title="先绘制至少 2 面垂直墙体即可一键按外框铺满地板"' : ''}>✨ 按墙体外框一键铺满地板</button>
+        </div>
+        <div class="symbio-decor-group"><h3>3. 工位与功能区（需先铺地板）</h3>
+          <div class="symbio-decor-catalog">
+            ${seatItems.map(spec => catalogButton(spec, true)).join('')}
+            ${zoneItems.map(spec => catalogButton(spec, false)).join('')}
+          </div>
+        </div>
+        <div class="symbio-decor-group"><h3>办公摆件与设施</h3>
+          <div class="symbio-decor-catalog">${decorItems.map(spec => catalogButton(spec, false)).join('')}</div></div>`
+      : `<div class="symbio-decor-group"><h3>空间墙体与地毯</h3>
+          <div class="symbio-decor-catalog">
+            ${buildToolBtn('wall', '画正交墙', '拉线建隔墙')}
+            ${buildToolBtn('door', '开门洞', '1.4m 可通行')}
+            ${buildToolBtn('erase-wall', '拆墙', '点击拆除')}
+            ${buildToolBtn('rug', '铺地毯', '区域地毯')}
+          </div>
+          ${wallSwatches}${rugSwatches}
+        </div>
+        <div class="symbio-decor-group"><h3>可入座工位与功能桌</h3>
+          <div class="symbio-decor-catalog">
+            ${seatItems.map(spec => catalogButton(spec, true)).join('')}
+            ${zoneItems.map(spec => catalogButton(spec, false)).join('')}
+          </div>
+        </div>
+        <div class="symbio-decor-group"><h3>办公装饰与设施</h3>
+          <div class="symbio-decor-catalog">${decorItems.map(spec => catalogButton(spec, false)).join('')}</div></div>`;
+
+    const palettePanel = panel(isCustom ? '从零建造工具箱' : '建筑与家具素材',
+      `${modeSwitch}<div class="symbio-decor-scroll">${paletteGroups}</div>`,
+      designTool !== 'select' ? link('ws-decor-mode', '退出工具', 'select') : label('选择 / 拖拽', 'green'),
+      'symbio-region-panel');
+
+    const toolbar = `<div class="symbio-decor-toolbar">
+      <button type="button" class="symbio-button${designTool === 'select' ? ' primary' : ''}" data-action="ws-decor-mode" data-id="select">选择 / 拖拽</button>
+      <button type="button" class="symbio-button" data-action="ws-decor-rotate" data-id="90"${!(designTool === 'place' && placingType) && !selectedItem ? ' disabled' : ''}>旋转 90° (R)</button>
+      <button type="button" class="symbio-button" data-action="ws-decor-undo"${!decorHistory.length ? ' disabled' : ''}>撤销</button>
+      <button type="button" class="symbio-button" data-action="ws-decor-redo"${!decorFuture.length ? ' disabled' : ''}>重做</button>
+    </div>`;
+
+    const canvasTitle = designTool === 'wall' ? (isCustom ? '第 1 步 · 绘制正交墙面' : '绘制正交墙体')
+      : designTool === 'floor' ? '第 2 步 · 拖拽铺设地板区域'
+        : designTool === 'erase-floor' ? '点击自定义地板拆除'
+          : designTool === 'door' ? '在自定义墙体上开门洞'
+            : designTool === 'erase-wall' ? '点击自定义墙体拆除'
+              : designTool === 'rug' ? '拖拽铺设区域地毯'
+                : designTool === 'place' && placingType ? `点击地板放置：${furnitureByType[placingType]?.name}`
+                  : (isCustom ? '从零自建 3D 空间画布（24×20m）' : '3D 自由布置画布');
+
+    const footerHint = designTool === 'wall'
+      ? (isCustom ? '在 24×20m 网格上拖拽绘制外墙与隔墙 · 靠近墙角/墙面自动磁吸无缝连接（按住 Alt 临时关闭吸附）' : '在地面拖拽绘制正交墙体 · 靠近墙角/墙面自动磁吸对齐（按住 Alt 临时关闭吸附）')
+      : designTool === 'floor' ? '在网格上拖拽矩形铺设地板区块 · 支持多块拼接不同材质 · 也可一键按墙体铺满'
+        : designTool === 'erase-floor' ? '点击任意已铺设的地板即可拆除（若其上已有家具请先移走）'
+          : designTool === 'door' ? '将光标移至自定义墙体上点击切开 1.4m 门洞 · 角色将自动从门洞穿行'
+            : designTool === 'erase-wall' ? '点击任意自定义墙体即可拆除'
+              : designTool === 'rug' ? '在地板上点击并拖拽矩形区域铺设地毯 · 不阻挡行走与摆桌'
+                : designTool === 'place' && placingType ? `绿色可放置 / 红色冲突 · 按 R 旋转当前朝向（${placingRotation}°）${isCustom && !floors.length ? ' · 请先铺设地板' : ''}`
+                  : '拖拽家具移动位置 · 点击墙体/地板/地毯/家具查看属性 · 自动 A* 避障寻路';
+
+    const canvas = `<section class="symbio-panel symbio-layout-preview">
+      <header class="symbio-panel-head"><h2>${escape(canvasTitle)}</h2>${toolbar}</header>
+      <div class="symbio-layout-stage symbio-layout-stage-3d">
+        ${officeViewport('office-3d-viewport', 'decorate', '3D 自由布置画布')}
+      </div>
+      <footer><span>${escape(footerHint)}</span>
+        <div class="symbio-workstation-controls">
+          <button type="button" data-action="office-orbit" data-id="-1" aria-label="向左旋转">↶</button>
+          <button type="button" data-action="office-orbit" data-id="1" aria-label="向右旋转">↷</button>
+          <button type="button" data-action="office-zoom-out" aria-label="缩小">−</button>
+          <button type="button" data-action="office-zoom-reset" aria-label="还原视角">还原</button>
+          <button type="button" data-action="office-zoom-in" aria-label="放大">＋</button>
+        </div></footer>
+    </section>`;
+
+    let inspectorBody = '';
+    if (selectedItem) {
+      const spec = furnitureByType[selectedItem.type];
+      const occupant = selectedItem.type === 'desk' && Number.isInteger(selectedItem.seatIndex) ? assigned.get(selectedItem.seatIndex) : null;
+      const seatBadge = selectedItem.type === 'desk' && Number.isInteger(selectedItem.seatIndex)
+        ? label(`工位 ${workstationLabel(selectedItem.seatIndex)}`, 'green')
+        : spec?.category === 'zone' ? label('功能区', 'violet') : label('装饰设施');
+      inspectorBody = `<div class="symbio-decor-selected">
+        <div class="symbio-inline"><strong>${escape(spec?.name ?? selectedItem.type)}</strong>${seatBadge}</div>
+        <p class="symbio-muted">${escape(spec?.description ?? '')}</p>
+        <div class="symbio-decor-meta">
+          <span>坐标：<code>(${selectedItem.x.toFixed(1)}, ${selectedItem.z.toFixed(1)})</code></span>
+          <span>朝向：<code>${selectedItem.rotation}°</code></span>
+        </div>
+        ${occupant ? `<p class="symbio-muted">当前入座：<strong>${escape(occupant.name)}</strong>（入座工位受保护不可删除）</p>` : ''}
+        <div class="symbio-decor-angles">
+          ${[0, 90, 180, 270].map(deg => `<button type="button" data-action="ws-decor-angle" data-id="${deg}" aria-pressed="${selectedItem.rotation === deg}">${deg}°</button>`).join('')}
+        </div>
+        <div class="symbio-seat-summary-actions">
+          <button type="button" class="symbio-button danger-btn" data-action="ws-decor-delete" data-id="item:${escape(selectedItem.id)}"${occupant ? ' disabled title="已有员工入座，无法删除"' : ''}>删除此物品</button>
+        </div>
+      </div>`;
+    } else if (selectedFloor) {
+      const w = (selectedFloor.x2 - selectedFloor.x1).toFixed(1);
+      const d = (selectedFloor.z2 - selectedFloor.z1).toFixed(1);
+      inspectorBody = `<div class="symbio-decor-selected">
+        <div class="symbio-inline"><strong>自定义地板</strong>${label(`${w}×${d}m`, 'green')}</div>
+        <div class="symbio-decor-meta">
+          <span>范围 <code>(${selectedFloor.x1.toFixed(1)}, ${selectedFloor.z1.toFixed(1)}) → (${selectedFloor.x2.toFixed(1)}, ${selectedFloor.z2.toFixed(1)})</code></span>
+        </div>
+        <div class="symbio-swatch-row">${Object.entries(floorPalette).map(([k, title]) =>
+          `<button type="button" class="symbio-swatch" data-swatch="floor-${k}" data-action="ws-floor-recolor" data-id="${escape(selectedFloor.id)}:${k}" aria-pressed="${selectedFloor.material === k}">${escape(title)}</button>`).join('')}</div>
+        <div class="symbio-seat-summary-actions">
+          <button type="button" class="symbio-button danger-btn" data-action="ws-decor-delete" data-id="floor:${escape(selectedFloor.id)}">拆除地板</button>
+        </div>
+      </div>`;
+    } else if (selectedWall) {
+      const len = wallLength(selectedWall);
+      const axisText = wallAxis(selectedWall) === 'x' ? '东西向隔墙' : '南北向隔墙';
+      const canCenterDoor = validateDoorPlacement(selectedWall, len / 2).ok;
+      inspectorBody = `<div class="symbio-decor-selected">
+        <div class="symbio-inline"><strong>自定义隔墙</strong>${label(`${len.toFixed(1)}m · ${axisText}`, 'green')}</div>
+        <div class="symbio-decor-meta">
+          <span>起点 <code>(${selectedWall.x1.toFixed(1)}, ${selectedWall.z1.toFixed(1)})</code></span>
+          <span>终点 <code>(${selectedWall.x2.toFixed(1)}, ${selectedWall.z2.toFixed(1)})</code></span>
+        </div>
+        <div class="symbio-swatch-row">${Object.entries(wallPalette).map(([k, title]) =>
+          `<button type="button" class="symbio-swatch" data-swatch="wall-${k}" data-action="ws-wall-recolor" data-id="${escape(selectedWall.id)}:${k}" aria-pressed="${selectedWall.color === k}">${escape(title.replace('墙', ''))}</button>`).join('')}</div>
+        <div class="symbio-inline">
+          <span class="symbio-muted">门洞：${selectedWall.doors?.length ?? 0} 个</span>
+          ${canCenterDoor ? link('ws-wall-door-center', '＋ 居中开门洞', selectedWall.id) : ''}
+        </div>
+        ${selectedWall.doors?.length ? `<div class="symbio-door-chips">${selectedWall.doors.map((offset, idx) =>
+          `<button type="button" class="symbio-door-chip" data-action="ws-wall-door-remove" data-id="${escape(selectedWall.id)}:${idx}" title="点击封堵此门洞">门洞 ${offset.toFixed(1)}m ×</button>`).join('')}</div>` : ''}
+        <div class="symbio-seat-summary-actions">
+          <button type="button" class="symbio-button danger-btn" data-action="ws-decor-delete" data-id="wall:${escape(selectedWall.id)}">拆除墙体</button>
+        </div>
+      </div>`;
+    } else if (selectedRug) {
+      const w = (selectedRug.x2 - selectedRug.x1).toFixed(1);
+      const d = (selectedRug.z2 - selectedRug.z1).toFixed(1);
+      inspectorBody = `<div class="symbio-decor-selected">
+        <div class="symbio-inline"><strong>区域地毯</strong>${label(`${w}×${d}m`, 'green')}</div>
+        <div class="symbio-swatch-row">${Object.entries(rugPalette).map(([k, title]) =>
+          `<button type="button" class="symbio-swatch" data-swatch="rug-${k}" data-action="ws-rug-recolor" data-id="${escape(selectedRug.id)}:${k}" aria-pressed="${selectedRug.color === k}">${escape(title.replace('地毯', ''))}</button>`).join('')}</div>
+        <div class="symbio-seat-summary-actions">
+          <button type="button" class="symbio-button danger-btn" data-action="ws-decor-delete" data-id="rug:${escape(selectedRug.id)}">移除地毯</button>
+        </div>
+      </div>`;
+    } else {
+      inspectorBody = `<p class="symbio-muted">在 3D 场景中点击任意自定义墙体、地板、地毯或家具即可编辑材质、门洞、朝向或删除。</p>`;
+    }
+
+    const totalCount = items.length + walls.length + floors.length + rugs.length;
+    const listEntries = [
+      ...walls.map((wall, idx) => `<li><button type="button" data-action="ws-decor-select" data-id="wall:${escape(wall.id)}" aria-pressed="${selectedDecor?.kind === 'wall' && selectedDecor.id === wall.id}">
+        <span><strong>${escape(wallPalette[wall.color] ?? '隔墙')} #${idx + 1}</strong>${wall.doors?.length ? ` <small class="seat-code">${wall.doors.length} 门</small>` : ''}</span>
+        <small>${wallLength(wall).toFixed(1)}m</small></button></li>`),
+      ...floors.map((floor, idx) => `<li><button type="button" data-action="ws-decor-select" data-id="floor:${escape(floor.id)}" aria-pressed="${selectedDecor?.kind === 'floor' && selectedDecor.id === floor.id}">
+        <span><strong>${escape(floorPalette[floor.material] ?? '地板')} #${idx + 1}</strong></span>
+        <small>${(floor.x2 - floor.x1).toFixed(1)}×${(floor.z2 - floor.z1).toFixed(1)}m</small></button></li>`),
+      ...rugs.map((rug, idx) => `<li><button type="button" data-action="ws-decor-select" data-id="rug:${escape(rug.id)}" aria-pressed="${selectedDecor?.kind === 'rug' && selectedDecor.id === rug.id}">
+        <span><strong>${escape(rugPalette[rug.color] ?? '地毯')} #${idx + 1}</strong></span>
+        <small>${(rug.x2 - rug.x1).toFixed(1)}×${(rug.z2 - rug.z1).toFixed(1)}m</small></button></li>`),
+      ...items.map(item => {
+        const spec = furnitureByType[item.type];
+        const code = item.type === 'desk' && Number.isInteger(item.seatIndex) ? workstationLabel(item.seatIndex) : '';
+        const occupant = code ? assigned.get(item.seatIndex) : null;
+        return `<li><button type="button" data-action="ws-decor-select" data-id="item:${escape(item.id)}" aria-pressed="${selectedDecor?.kind === 'item' && selectedDecor.id === item.id}">
+          <span><strong>${escape(spec?.name ?? item.type)}</strong>${code ? ` <small class="seat-code">${escape(code)}</small>` : ''}</span>
+          <small>${occupant ? escape(occupant.name) : `(${item.x.toFixed(1)}, ${item.z.toFixed(1)})`}</small>
+        </button></li>`;
+      }),
+    ];
+
+    const listRows = listEntries.length
+      ? `<ul class="symbio-decor-list">${listEntries.join('')}</ul>`
+      : empty(isCustom ? '空白自建画布已就绪：请先用左侧「画正交墙」绘制墙体，再铺设地板与摆放家具。' : '尚未绘制墙体、地毯或自定义家具，可从左侧素材库开始布置。');
+
+    const countSummary = isCustom || floors.length
+      ? `共 ${totalCount} 项（墙 ${walls.length} · 地 ${floors.length} · 毯 ${rugs.length} · 桌 ${deskCount} · 装 ${decorCount}）`
+      : `共 ${totalCount} 项（墙 ${walls.length} · 毯 ${rugs.length} · 桌 ${deskCount} · 装 ${decorCount}）`;
+
+    const inspectorPanel = panel('已布置清单',
+      `${inspectorBody}<div class="symbio-zone-seats"><div class="symbio-inline"><h3>${countSummary}</h3>
+        ${decorCount + walls.length + rugs.length + (deskCount === 0 ? floors.length : 0) > 0 ? link('ws-decor-clear', '清空非工位') : ''}</div>${listRows}</div>`,
+      '', 'symbio-region-properties');
+
+    return `<div class="symbio-layout-grid">${palettePanel}${canvas}${inspectorPanel}</div>`;
+  }
+
+  function layoutDesignConfig() {
+    const snapshot = data();
+    const decor = editableDecor();
+    const wingCount = snapshot.workstationCount ?? baseWorkstations;
+    return {
+      active: layoutTab === 'decorate',
+      mode: decor.mode,
+      tool: designTool,
+      placingType,
+      placingRotation,
+      wallColor,
+      floorMaterial,
+      rugColor,
+      selected: selectedDecor,
+      floors: decor.floors,
+      items: decor.items,
+      walls: decor.walls,
+      rugs: decor.rugs,
+      wingCount,
+      onSelect(sel) {
+        const same = (!sel && !selectedDecor) || (sel && selectedDecor && sel.kind === selectedDecor.kind && sel.id === selectedDecor.id);
+        if (same) return;
+        selectedDecor = sel;
+        render();
+      },
+      onPlace(candidate) {
+        const id = 'item_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        const snap = data();
+        mutateDecor(draft => {
+          const item = {
+            id,
+            type: candidate.type,
+            x: candidate.x,
+            z: candidate.z,
+            rotation: normalizeRotation(candidate.rotation),
+            ...(candidate.type === 'desk' ? {seatIndex: nextDraftSeatIndex(draft.items, snap)} : {}),
+          };
+          draft.items.push(item);
+          selectedDecor = {kind: 'item', id};
+        });
+      },
+      onMove(id, x, z) {
+        mutateDecor(draft => {
+          const entry = draft.items.find(item => item.id === id);
+          if (entry) { entry.x = x; entry.z = z; }
+        });
+      },
+      onAddFloor(floor) {
+        const id = 'floor_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        mutateDecor(draft => {
+          draft.floors.push({...floor, id, material: floorMaterial});
+          selectedDecor = {kind: 'floor', id};
+        });
+      },
+      onDeleteFloor(floorId) {
+        deleteSelectedDecor({kind: 'floor', id: floorId});
+      },
+      onAddWall(wall) {
+        const id = 'wall_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        mutateDecor(draft => {
+          draft.walls.push({...wall, id, color: wallColor, doors: []});
+          selectedDecor = {kind: 'wall', id};
+        });
+      },
+      onAddDoor(wallId, offset) {
+        mutateDecor(draft => {
+          const target = draft.walls.find(w => w.id === wallId);
+          if (!target) return;
+          target.doors = [...(target.doors ?? []), offset].sort((a, b) => a - b);
+          selectedDecor = {kind: 'wall', id: wallId};
+        });
+      },
+      onDeleteWall(wallId) {
+        deleteSelectedDecor({kind: 'wall', id: wallId});
+      },
+      onAddRug(rug) {
+        const id = 'rug_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        mutateDecor(draft => {
+          draft.rugs.push({...rug, id, color: rugColor});
+          selectedDecor = {kind: 'rug', id};
+        });
+      },
+    };
   }
 
   function layoutEditor() {
@@ -401,71 +941,106 @@ export function createWorkspaceView(ui) {
     if (!draft) return empty('请重启服务以加载空间与工位。');
     const snapshot = data();
     const layout = snapshot.layout;
-    const model = officeOverview(snapshot, null);
-    const roomOccupancy = zone => zone.autoAssign
-      ? Math.min(zone.capacity, model.rooms[zone.type].filter(person => !zone.teamId || person.teamId === zone.teamId).length) : 0;
+    const count = snapshot.workstationCount ?? baseWorkstations;
+    const officeMode = snapshot.officeMode === 'custom' ? 'custom' : 'default';
+    const assigned = seatAssignments(snapshot);
+    const removable = removableWorkstations(snapshot, assigned);
+    const customDeskCount = (snapshot.officeItems ?? []).filter(item => item.type === 'desk').length;
+    const totalPhysicalDesks = officeMode === 'custom' ? customDeskCount : count + customDeskCount;
+    const totalRemaining = Math.max(0, totalPhysicalDesks - assigned.size);
     const selected = draft.zones.find(zone => zone.id === selectedZone) ?? draft.zones[0];
-    const toolRow = `<div class="symbio-layout-tabs">${tabs([['space','空间布局'],['seats','工位管理'],['widgets','监控组件']], layoutTab, 'ws-layout-tab')}
-      <div>${blockButton('ws-layout-name', draft.title, '', 'chevron-trigger')}${label(layoutDirty ? '待保存' : layout.publishedAt ? '已发布' : '默认布局', 'green')}</div></div>`;
+    const selectedStats = zoneSeatStats(selected, snapshot, assigned);
+    const sameTypeZones = draft.zones.filter(zone => zone.type === selected.type);
+    const isDuplicateZone = sameTypeZones.length > 1 && sameTypeZones[0].id !== selected.id;
+    const toolRow = `<div class="symbio-layout-tabs">${tabs([['space','空间布局'],['decorate','自由布置'],['seats','工位管理'],['widgets','监控组件']], layoutTab, 'ws-layout-tab')}
+      <div>${blockButton('ws-layout-name', draft.title, '', 'chevron-trigger')}${label(layoutTab === 'decorate' ? (decorDirty ? '布置待保存' : (editableDecor().mode === 'custom' ? '从零自建' : '3D 已同步')) : (layoutDirty ? '待保存' : officeMode === 'custom' ? '自建空间' : layout.publishedAt ? '已发布' : '默认布局'), 'green')}</div></div>`;
     const regionPanel = panel('空间区域',
-      `<p class="symbio-muted">${draft.zones.length} 个区域 · ${draft.zones.reduce((sum, zone) => sum + zone.capacity, 0)} 人区域总容量</p>
-      <div class="symbio-zones">${draft.zones.map((zone, index) =>
-        `<button type="button" data-action="ws-zone" data-id="${escape(zone.id)}" aria-pressed="${zone.id === selected.id}">
+      `<p class="symbio-muted">${totalPhysicalDesks} 个 3D 实体工位 · 已入座 ${assigned.size} · 剩余 ${totalRemaining} 空位</p>
+      <div class="symbio-zones">${draft.zones.map((zone, index) => {
+        const stats = zoneSeatStats(zone, snapshot, assigned);
+        const detail = stats.isDeskZone
+          ? `共 ${stats.total} 工位 · 已占 ${stats.occupied} · 剩余 ${stats.remaining}`
+          : `${stats.total} 个共享席位 · ${stats.occupied ? stats.occupied + ' 人使用中' : '当前空闲'}`;
+        return `<button type="button" data-action="ws-zone" data-id="${escape(zone.id)}" aria-pressed="${zone.id === selected.id}">
           <span>${pad(index + 1)}</span><span><strong>${escape(zone.name)}</strong>
-          <small>${zone.capacity} 个席位 · ${roomOccupancy(zone) ? roomOccupancy(zone) + ' 人在线' : '当前空闲'}</small></span></button>`).join('')}</div>
-      <div class="symbio-zone-tools"><h3>可添加组件</h3><div>${Object.entries(zoneNames).map(([type, title]) =>
-        blockButton('ws-zone-add', '＋ ' + (type === 'work' ? '工位区' : title), type)).join('')}</div></div>`,
-      link('ws-zone-add', '＋', 'work'), 'symbio-region-panel');
-    const previews = `<div class="symbio-layout-switch">${blockButton('ws-layout-view', '3D 视图', '3d', layoutView === '3d' ? 'selected' : '')}
-      ${blockButton('ws-layout-view', '平面视图', 'plan', layoutView === 'plan' ? 'selected' : '')}</div>`;
-    const canvas = `<section class="symbio-panel symbio-layout-preview"><header class="symbio-panel-head"><h2>布局预览</h2>${previews}${link('ws-layout-preview', '↗ 预览')}</header>
-      ${layoutView === '3d' ? `<div class="symbio-layout-stage symbio-layout-stage-3d">
+          <small>${detail}</small></span></button>`;
+      }).join('')}</div>
+      <div class="symbio-zone-tools"><h3>3D 实体工位管理</h3>
+        <p class="symbio-muted">${officeMode === 'custom'
+          ? '当前使用「从零自建空间」，可在「自由布置」中绘制墙面、地板并自由增减工位与功能桌。'
+          : '席位与 3D 实景桌椅一一对应；通过 3D 东侧扩建的空余工位也可随时删减。'}</p>
+        ${officeMode === 'custom'
+          ? blockButton('ws-layout-tab', '前往自由布置 →', 'decorate', 'primary')
+          : blockButton('ws-workstations-add', '＋ 在 3D 图中新增工位', '', 'primary') +
+            (removable > 0 ? blockButton('ws-workstations-remove', `− 缩减扩建工位（可删 ${removable}）`) : '')}</div>`,
+      '', 'symbio-region-panel');
+    const canvas = `<section class="symbio-panel symbio-layout-preview"><header class="symbio-panel-head"><h2>3D 空间预览</h2>${link('ws-layout-preview', '↗ 放大预览')}</header>
+      <div class="symbio-layout-stage symbio-layout-stage-3d">
         ${officeViewport('office-3d-viewport','space','3D 空间布局')}
       </div>
-      <footer><span>选择区域查看属性</span><div class="symbio-workstation-controls">
+      <footer><span>点击区域标牌查看实时工位与入座成员</span><div class="symbio-workstation-controls">
         <button type="button" data-action="office-orbit" data-id="-1" aria-label="向左旋转">↶</button>
         <button type="button" data-action="office-orbit" data-id="1" aria-label="向右旋转">↷</button>
         <button type="button" data-action="office-zoom-out" aria-label="缩小">−</button>
         <button type="button" data-action="office-zoom-reset" aria-label="还原视角">还原</button>
         <button type="button" data-action="office-zoom-in" aria-label="放大">＋</button>
-      </div></footer>` : `<div class="symbio-layout-stage floor-plan">
-        <div class="symbio-layout-art" data-zoom="${layoutZoom}">
-          <div class="symbio-plan-grid" aria-hidden="true"></div>
-          ${draft.zones.map(zone => `<button type="button" class="symbio-layout-zone${zone.id === selected.id ? ' selected' : ''}"
-            data-action="ws-zone" data-id="${escape(zone.id)}" data-layout-zone="${escape(zone.id)}">${escape(zone.name)}</button>`).join('')}
-        </div>
-        <p class="symbio-muted">拖动区域调整位置。</p>
-      </div>
-      <footer><span>平面网格</span><div>${link('ws-layout-zoom','−','-10')}<span>${layoutZoom}%</span>${link('ws-layout-zoom','＋','10')}</div></footer>`}
+      </div></footer>
       </section>`;
     const teams = [['', '未分配'], ...snapshot.teams.map(team => [team.id, team.name])];
+    const zoneSeatsHtml = selectedStats.isDeskZone ? `<div class="symbio-zone-seats">
+      <div class="symbio-inline"><h3>本区工位与入座成员</h3>${link('ws-layout-tab', '工位总览 →', 'seats')}</div>
+      <ul>${selectedStats.indices.map(index => {
+        const person = assigned.get(index);
+        const code = workstationLabel(index);
+        if (person) {
+          return `<li><button type="button" data-action="office-person" data-id="${escape(person.key)}" aria-pressed="${ui.selectedOfficeActor() === person.key}">
+            <span class="seat-code">${escape(code)}</span><strong>${escape(person.name)}</strong><small>${person.kind === 'agent' ? 'Agent' : '真人'}</small>
+          </button></li>`;
+        }
+        const isCustom = index >= customSeatIndexStart;
+        const canDelete = !isCustom && index >= baseWorkstations;
+        return `<li class="seat-empty"><div><span class="seat-code">${escape(code)}</span><span>${isCustom ? '自由布置工位' : canDelete ? '扩建空位' : '空置工位'}</span>${canDelete
+          ? `<button type="button" class="seat-delete-btn" data-action="ws-workstation-delete" data-id="${index}">删除</button>`
+          : isCustom ? `<button type="button" class="seat-delete-btn" data-action="ws-layout-tab" data-id="decorate">调整</button>` : '<small>剩余</small>'}</div></li>`;
+      }).join('')}</ul></div>` : '';
     const properties = panel('区域属性', `<div class="symbio-zone-properties">
-      <div>${label(selected.name, 'green')}</div>
+      <div class="symbio-inline">${label(zoneNames[selected.type] ?? selected.type, 'green')}${isDuplicateZone ? link('ws-zone-remove', '移除多余区域', selected.id) : ''}</div>
       <label>区域名称<input data-zone-field="name" maxlength="36" value="${escape(selected.name)}"></label>
-      <label>区域类型<span class="select-control"><select data-zone-field="type">${Object.entries(zoneNames).map(([type, title]) =>
-        `<option value="${type}"${type === selected.type ? ' selected' : ''}>${title}</option>`).join('')}</select></span></label>
-      <div><p>席位容量</p><div class="symbio-seat-stepper">${link('ws-zone-seat','−','-1')}<span>${selected.capacity} 个席位</span>${link('ws-zone-seat','＋','1')}</div></div>
+      <div class="symbio-seat-summary">
+        <div class="symbio-inline"><span>${selectedStats.isDeskZone ? '3D 实体工位（自动同步）' : '3D 固定席位'}</span><strong>共 ${selectedStats.total} 个</strong></div>
+        <p>${selectedStats.isDeskZone
+          ? `已入座 ${selectedStats.occupied} 人 · 剩余 ${selectedStats.remaining} 个空位。不可手动虚增，如需扩充请先在 3D 图中新增工位。`
+          : `由 3D 房间内实际家具决定（当前 ${selectedStats.occupied ? selectedStats.occupied + ' 人使用中' : '全部空闲'}）。`}</p>
+        ${selectedStats.isDeskZone ? `<div class="symbio-seat-summary-actions">
+          ${officeMode === 'custom'
+            ? blockButton('ws-layout-tab', '前往自由布置 →', 'decorate')
+            : blockButton('ws-workstations-add', '＋ 扩建 3D 工位') +
+              (removable > 0 ? blockButton('ws-workstations-remove', '− 缩减工位') : '')}
+        </div>` : ''}
+      </div>
       <label>分配团队<span class="select-control"><select data-zone-field="teamId">${teams.map(([id, title]) =>
         `<option value="${escape(id)}"${id === (selected.teamId ?? '') ? ' selected' : ''}>${escape(title)}</option>`).join('')}</select></span></label>
       <div class="symbio-zone-toggles"><label>在实时大屏中显示<input data-zone-field="visible" type="checkbox" role="switch"${selected.visible ? ' checked' : ''}></label>
         <label>允许 Agent 自动入驻<input data-zone-field="autoAssign" type="checkbox" role="switch"${selected.autoAssign ? ' checked' : ''}></label></div>
-      <p>已分配 ${roomOccupancy(selected)} / ${selected.capacity} 个席位 · 剩余 ${Math.max(0, selected.capacity - roomOccupancy(selected))} 个</p>
+      ${zoneSeatsHtml}
       </div>`, '', 'symbio-region-properties');
-    const templatesSection = `<section class="symbio-templates"><header><h2>从模板开始</h2><span>保留现有成员与区域分配，仅替换空间布局。</span></header>
-      <div>${templates.map(([id, title, description]) => `<article class="symbio-panel symbio-template${draft.template === id ? ' selected' : ''}">
-        <div class="symbio-template-art ${id}" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-        <div><h3>${title}</h3><p>${description}</p></div>
-        ${draft.template === id ? '<strong>当前使用</strong>' : link('ws-layout-template','应用模板 →',id)}</article>`).join('')}</div></section>`;
     const widgets = panel('监控组件', `<div class="symbio-widget-settings">${[
       ['metrics','关键指标','展示在线员工、执行中任务、完成数和人工介入'],['activity','协作动态','展示最近的任务与协作事件'],
-      ['attention','需要你关注','展示验收、入职和截止提醒'],
+      ['attention','需要你关注','展示任务验收和截止提醒'],
     ].map(([key, title, description]) => `<label><span><strong>${title}</strong><small>${description}</small></span>
       <input type="checkbox" role="switch" data-widget="${key}"${draft.widgets[key] ? ' checked' : ''}></label>`).join('')}</div>`);
-    return intro('5:21', '空间与工位', '编排数字办公室的区域、席位与监控组件，构建适合团队的工作现场。',
-      layoutTab === 'seats' ? '' : `<span class="symbio-muted">${layoutDirty ? '有未保存的修改' : layout.savedAt ? '已保存于 ' + escape(localTime(layout.savedAt).slice(0, 5)) : '工作空间布局'}</span>` +
-        blockButton('ws-layout-save','保存草稿') + blockButton('ws-layout-publish','发布布局 ↗','','primary'),
-      toolRow + (layoutTab === 'space' ? `<div class="symbio-layout-grid">${regionPanel}${canvas}${properties}</div>${templatesSection}`
-        : layoutTab === 'seats' ? workstations(snapshot) : widgets),
+    const topActions = layoutTab === 'seats' ? ''
+      : layoutTab === 'decorate'
+        ? `<span class="symbio-muted">${decorDirty ? '有未保存的 3D 布置修改' : '修改保存后立即同步到办公室'}</span>` +
+          (decorDirty ? blockButton('ws-decor-reset', '放弃修改') : '') +
+          blockButton('ws-decor-save', '保存 3D 布置', '', 'primary')
+        : `<span class="symbio-muted">${layoutDirty ? '有未保存的修改' : layout.savedAt ? '已保存于 ' + escape(localTime(layout.savedAt).slice(0, 5)) : '工作空间布局'}</span>` +
+          blockButton('ws-layout-save','保存草稿') + blockButton('ws-layout-publish','发布布局 ↗','','primary');
+    return intro('5:21', '空间与工位', '查看 3D 办公室真实工位与入座分布，支持在 3D 图中自由拖拽摆放工位与装饰。',
+      topActions,
+      toolRow + (layoutTab === 'space' ? `<div class="symbio-layout-grid">${regionPanel}${canvas}${properties}</div>`
+        : layoutTab === 'decorate' ? decorateWorkspace(snapshot)
+          : layoutTab === 'seats' ? workstations(snapshot) : widgets),
       'symbio-layout');
   }
 
@@ -474,7 +1049,7 @@ export function createWorkspaceView(ui) {
       '', `<div class="symbio-help-grid">${[
       ['项目与任务','创建项目，分配任务并验收 Agent 交付。','tasks'],
       ['员工与小队','维护真人档案、Agent 员工和团队归属。','people'],
-      ['发现与入职','配对异机采集客户端，扫描来源并审批入职。','discovery'],
+      ['发现与接入','配对采集客户端并接入运行器；员工在智能体中创建和绑定。','discovery'],
       ['办公室布局','编辑区域与组件，保存草稿或发布到办公室。','layout'],
       ['设置','管理成员、任务配置、MCP 和个人偏好。','settings'],
       ['聊天','发起双人交流或多人会议，并查看发言记录。','conversations'],
@@ -606,7 +1181,7 @@ export function createWorkspaceView(ui) {
       case 'ws-person': employee.selected = id; render(); break;
       case 'ws-add-employee':
         ui.showPanel('添加员工', `<div class="stack">${blockButton('ws-human-edit','添加真人员工')}
-          ${blockButton('agent-edit','创建 Agent 员工')}${blockButton('goto-discovery','从已发现的 Agent 入职')}</div>`);
+          ${blockButton('agent-edit','创建 Agent 员工')}${blockButton('goto-discovery','接入运行器')}</div>`);
         break;
       case 'ws-human-edit': humanEditor(id); break;
       case 'ws-export-people': exportPeople(); break;
@@ -620,54 +1195,287 @@ export function createWorkspaceView(ui) {
       }
       case 'ws-runs': ui.showPanel('运行记录', ui.runTable(data().runs.slice(0,80))); break;
       case 'ws-layout-tab': navigate('layout',id); break;
-      case 'ws-workstations-add':
-        edit('新增工位', input('数量','amount',1,{type:'number',min:1,max:24,required:true}) +
-          '<p class="description">新增工位会同步到办公室，并优先分配给后续入职的员工。</p>',
-        form => api('layout/workstations',{amount:Number(form.get('amount'))}), '新增工位');
-        break;
-      case 'ws-layout-view': layoutView = id; render(); break;
-      case 'ws-layout-zoom': layoutZoom = Math.max(60,Math.min(120,layoutZoom + Number(id))); render(); break;
-      case 'ws-zone': selectedZone = id; render(); break;
-      case 'ws-zone-add': {
-        if (editableLayout().zones.length >= 16) throw new Error('最多可配置 16 个区域');
-        mutateLayout(draft => {
-          selectedZone = 'zone-' + crypto.randomUUID();
-          const [x,y] = templatePositions.open[id];
-          draft.zones.push({id:selectedZone,type:id,name:zoneSeeds[id] + ' ' + (draft.zones.length + 1),
-            capacity:8,x:Math.min(75,x + 4),y:Math.min(85,y + 5),teamId:null,visible:true,autoAssign:true});
+      case 'ws-decor-space-mode': {
+        const nextMode = id === 'custom' ? 'custom' : 'default';
+        const current = editableDecor();
+        if (current.mode === nextMode) break;
+        const snap = data();
+        const assigned = seatAssignments(snap);
+        mutateDecor(draft => {
+          draft.mode = nextMode;
+          if (nextMode === 'custom') {
+            const occupiedDesks = draft.items.filter(item => item.type === 'desk' && Number.isInteger(item.seatIndex) && assigned.has(item.seatIndex));
+            draft.walls = [];
+            draft.rugs = [];
+            draft.items = occupiedDesks;
+            if (occupiedDesks.length) {
+              const xs = occupiedDesks.map(i => i.x);
+              const zs = occupiedDesks.map(i => i.z);
+              draft.floors = [normalizeFloor({
+                id: 'floor_' + Date.now().toString(36),
+                x1: Math.min(...xs) - 2,
+                z1: Math.min(...zs) - 2,
+                x2: Math.max(...xs) + 2,
+                z2: Math.max(...zs) + 2,
+                material: floorMaterial,
+              })];
+            } else {
+              draft.floors = [];
+            }
+            designTool = 'wall';
+            placingType = null;
+            selectedDecor = null;
+          } else {
+            draft.floors = [];
+            const wingCount = snap.workstationCount ?? baseWorkstations;
+            draft.walls = draft.walls.filter(w => validateWallPlacement(w, [], [], wingCount, w.id, 'default').ok);
+            draft.rugs = draft.rugs.filter(r => validateRugPlacement(r, wingCount, 'default', []).ok);
+            draft.items = draft.items.filter(item =>
+              (item.type === 'desk' && Number.isInteger(item.seatIndex) && assigned.has(item.seatIndex)) ||
+              validateItemPlacement(item, [], wingCount, item.id, draft.walls, 'default', []).ok
+            );
+            designTool = 'select';
+            placingType = null;
+            selectedDecor = null;
+          }
         });
         break;
       }
-      case 'ws-zone-seat': mutateLayout(draft => {
-        const zone = draft.zones.find(item => item.id === selectedZone);
-        zone.capacity = Math.max(1,Math.min(500,zone.capacity + Number(id)));
+      case 'ws-decor-mode':
+        designTool = designTool === id && id !== 'select' ? 'select' : (id || 'select');
+        placingType = null;
+        if (designTool !== 'select') selectedDecor = null;
+        render();
+        break;
+      case 'ws-decor-tool':
+        if (id && !(designTool === 'place' && placingType === id)) {
+          designTool = 'place';
+          placingType = id;
+          selectedDecor = null;
+        } else {
+          designTool = 'select';
+          placingType = null;
+        }
+        render();
+        break;
+      case 'ws-wall-color':
+        wallColor = id;
+        render();
+        break;
+      case 'ws-floor-material':
+        floorMaterial = id;
+        render();
+        break;
+      case 'ws-rug-color':
+        rugColor = id;
+        render();
+        break;
+      case 'ws-floor-recolor': {
+        const [floorId, nextMaterial] = id.split(':');
+        mutateDecor(draft => {
+          const f = draft.floors.find(entry => entry.id === floorId);
+          if (f) f.material = nextMaterial;
+        });
+        break;
+      }
+      case 'ws-floor-autofill': {
+        const current = editableDecor();
+        if (current.walls.length < 2) throw new Error('请先绘制至少 2 面垂直墙体，再一键按外框铺满地板');
+        const xs = current.walls.flatMap(w => [w.x1, w.x2]);
+        const zs = current.walls.flatMap(w => [w.z1, w.z2]);
+        const draftFloor = normalizeFloor({
+          x1: Math.min(...xs),
+          z1: Math.min(...zs),
+          x2: Math.max(...xs),
+          z2: Math.max(...zs),
+          material: floorMaterial,
+        });
+        const check = validateFloorPlacement(draftFloor);
+        if (!check.ok) throw new Error('当前墙体尚未围出有效空间（宽深至少 1.5m），请补画垂直墙或手动拖拽铺地板');
+        const floorId = 'floor_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+        mutateDecor(draft => {
+          draft.floors.push({...check.floor, id: floorId});
+          selectedDecor = {kind: 'floor', id: floorId};
+          designTool = 'select';
+          placingType = null;
+        });
+        break;
+      }
+      case 'ws-wall-recolor': {
+        const [wallId, nextColor] = id.split(':');
+        mutateDecor(draft => {
+          const w = draft.walls.find(entry => entry.id === wallId);
+          if (w) w.color = nextColor;
+        });
+        break;
+      }
+      case 'ws-rug-recolor': {
+        const [rugId, nextColor] = id.split(':');
+        mutateDecor(draft => {
+          const r = draft.rugs.find(entry => entry.id === rugId);
+          if (r) r.color = nextColor;
+        });
+        break;
+      }
+      case 'ws-wall-door-center': {
+        const decor = editableDecor();
+        const wall = decor.walls.find(w => w.id === id);
+        if (!wall) break;
+        const check = validateDoorPlacement(wall, wallLength(wall) / 2);
+        if (!check.ok) throw new Error(check.reason);
+        mutateDecor(draft => {
+          const target = draft.walls.find(w => w.id === id);
+          if (target) target.doors = [...(target.doors ?? []), check.offset].sort((a, b) => a - b);
+        });
+        break;
+      }
+      case 'ws-wall-door-remove': {
+        const [wallId, idxStr] = id.split(':');
+        const idx = Number(idxStr);
+        mutateDecor(draft => {
+          const target = draft.walls.find(w => w.id === wallId);
+          if (target?.doors) target.doors.splice(idx, 1);
+        });
+        break;
+      }
+      case 'ws-decor-select': {
+        const [kind, targetId] = id.split(':');
+        designTool = 'select';
+        placingType = null;
+        selectedDecor = selectedDecor?.kind === kind && selectedDecor?.id === targetId ? null : {kind, id: targetId};
+        render();
+        break;
+      }
+      case 'ws-decor-rotate':
+        rotateSelectedOrPlacing(Number(id) || 90);
+        break;
+      case 'ws-decor-angle': {
+        if (selectedDecor?.kind !== 'item') break;
+        const decor = editableDecor();
+        const target = decor.items.find(item => item.id === selectedDecor.id);
+        if (!target) break;
+        const deg = normalizeRotation(Number(id));
+        const check = validateItemPlacement({...target, rotation: deg}, decor.items, data().workstationCount ?? baseWorkstations, target.id, decor.walls, decor.mode, decor.floors);
+        if (!check.ok) throw new Error('旋转后' + check.reason);
+        mutateDecor(draft => {
+          const entry = draft.items.find(item => item.id === selectedDecor.id);
+          if (entry) entry.rotation = deg;
+        });
+        break;
+      }
+      case 'ws-decor-delete': {
+        const [kind, targetId] = id.includes(':') ? id.split(':') : ['item', id];
+        deleteSelectedDecor({kind, id: targetId});
+        break;
+      }
+      case 'ws-decor-clear':
+        mutateDecor(draft => {
+          draft.items = draft.items.filter(item => item.type === 'desk');
+          draft.walls = [];
+          draft.rugs = [];
+          if (!draft.items.length) draft.floors = [];
+          if (selectedDecor && (selectedDecor.kind !== 'item' || !draft.items.some(i => i.id === selectedDecor.id))) {
+            selectedDecor = null;
+          }
+        });
+        break;
+      case 'ws-decor-undo':
+        if (!decorHistory.length) break;
+        decorFuture.push(structuredClone(editableDecor()));
+        decorDraft = decorHistory.pop();
+        decorDirty = true;
+        selectedDecor = null;
+        render();
+        break;
+      case 'ws-decor-redo':
+        if (!decorFuture.length) break;
+        decorHistory.push(structuredClone(editableDecor()));
+        decorDraft = decorFuture.pop();
+        decorDirty = true;
+        selectedDecor = null;
+        render();
+        break;
+      case 'ws-decor-reset':
+        decorDirty = false;
+        decorDraft = null;
+        decorHistory = [];
+        decorFuture = [];
+        designTool = 'select';
+        placingType = null;
+        selectedDecor = null;
+        render();
+        break;
+      case 'ws-decor-save': {
+        const current = editableDecor();
+        const result = await api('layout/items', {
+          mode: current.mode,
+          floors: current.floors,
+          items: current.items,
+          walls: current.walls,
+          rugs: current.rugs,
+        });
+        decorDraft = {
+          mode: result.mode === 'custom' ? 'custom' : 'default',
+          floors: structuredClone(result.floors ?? []),
+          items: structuredClone(result.items ?? []),
+          walls: structuredClone(result.walls ?? []),
+          rugs: structuredClone(result.rugs ?? []),
+        };
+        decorDirty = false;
+        decorHistory = [];
+        decorFuture = [];
+        designTool = 'select';
+        placingType = null;
+        selectedDecor = null;
+        break;
+      }
+      case 'ws-workstations-add':
+        edit('在 3D 图中扩建工位', input('新增实体工位数量','amount',2,{type:'number',min:1,max:24,required:true}) +
+          '<p class="description">将在 3D 办公室东侧（AI 运行区）实际扩建对应数量的工位桌椅，并自动计入可用空位。</p>',
+        form => api('layout/workstations',{amount:Number(form.get('amount'))}), '扩建 3D 工位');
+        break;
+      case 'ws-workstations-remove': {
+        const removable = removableWorkstations(data());
+        if (!removable) throw new Error('没有可删除的空余扩建工位（基础 12 个工位或已入座工位不可删除）');
+        edit('缩减 3D 扩建工位', input('删除空余扩建工位数量', 'amount', Math.min(2, removable), {type:'number', min:1, max:removable, required:true}) +
+          `<p class="description">当前可删除 ${removable} 个通过 3D 图扩建的空余工位；基础 12 个工位与已入座工位受保护不可删除。</p>`,
+        form => api('layout/workstations/remove', {amount: Number(form.get('amount'))}), '确认删除');
+        break;
+      }
+      case 'ws-workstation-delete':
+        await api('layout/workstations/remove', {index: Number(id)});
+        break;
+      case 'ws-zone': selectedZone = id; render(); break;
+      case 'ws-zone-remove': mutateLayout(draft => {
+        if (draft.zones.length <= 1) return;
+        draft.zones = draft.zones.filter(zone => zone.id !== id);
+        if (selectedZone === id) selectedZone = draft.zones[0].id;
       }); break;
       case 'ws-layout-name': edit('空间名称', input('名称','title',editableLayout().title,{required:true}),
         form => mutateLayout(draft => { draft.title = form.get('title').trim(); })); break;
-      case 'ws-layout-template': mutateLayout(draft => {
-        draft.template = id;
-        const counts = {};
-        for (const zone of draft.zones) {
-          const [x,y] = templatePositions[id][zone.type];
-          const offset = counts[zone.type] ?? 0;
-          zone.x = Math.min(82,x + 2 * offset);
-          zone.y = Math.min(88,y + 5 * offset);
-          counts[zone.type] = offset + 1;
-        }
-      }); break;
       case 'ws-layout-preview': {
         const draft = editableLayout();
+        const snapshot = data();
+        const assigned = seatAssignments(snapshot);
         ui.showPanel('布局预览 · ' + draft.title,
           `<div class="symbio-layout-stage symbio-layout-stage-3d symbio-layout-modal">
             ${officeViewport('office-layout-dialog-viewport','space','3D 布局预览')}
           </div>
-          <div class="stack">${draft.zones.map(zone => `<div class="symbio-inline"><strong>${escape(zone.name)}</strong><span>${zone.capacity} 个席位</span></div>`).join('')}</div>`);
+          <div class="stack">${draft.zones.map(zone => {
+            const stats = zoneSeatStats(zone, snapshot, assigned);
+            return `<div class="symbio-inline"><strong>${escape(zone.name)}</strong><span>${stats.isDeskZone ? `共 ${stats.total} 工位 · 余 ${stats.remaining}` : `${stats.total} 个共享席位`}</span></div>`;
+          }).join('')}</div>`);
         break;
       }
       case 'ws-layout-save':
       case 'ws-layout-publish': {
+        const currentCount = data().workstationCount ?? baseWorkstations;
+        const currentItems = data().officeItems ?? [];
+        const currentMode = data().officeMode === 'custom' ? 'custom' : 'default';
+        const syncedDraft = structuredClone(editableLayout());
+        for (const zone of syncedDraft.zones) zone.capacity = Math.max(1, physicalZoneCapacity(zone.type, currentCount, currentItems, currentMode));
         const saved = await api('layout/' + (type === 'ws-layout-save' ? 'draft' : 'publish'), {
-          revision:layoutRevision,draft:editableLayout(),
+          revision: layoutRevision, draft: syncedDraft,
         });
         layoutRevision = saved.revision;
         layoutDraft = structuredClone(saved.draft);
@@ -735,6 +1543,27 @@ export function createWorkspaceView(ui) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && data() && !document.querySelector('dialog[open]')) {
         event.preventDefault();
         ui.action('ws-search');
+        return;
+      }
+      if (layoutTab !== 'decorate' || !document.querySelector('[data-layout-preview="decorate"]') || document.querySelector('dialog[open]')) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'r') {
+        event.preventDefault();
+        rotateSelectedOrPlacing(90);
+      } else if (key === 'escape') {
+        if (designTool !== 'select' || placingType || selectedDecor) {
+          designTool = 'select';
+          placingType = null;
+          selectedDecor = null;
+          render();
+        }
+      } else if ((key === 'delete' || key === 'backspace') && selectedDecor) {
+        event.preventDefault();
+        try { deleteSelectedDecor(selectedDecor); } catch {}
+      } else if ((event.metaKey || event.ctrlKey) && key === 'z') {
+        event.preventDefault();
+        action(event.shiftKey ? 'ws-decor-redo' : 'ws-decor-undo');
       }
     });
     document.addEventListener('input', event => {
@@ -770,38 +1599,6 @@ export function createWorkspaceView(ui) {
       }
       if (element.dataset.widget) mutateLayout(draft => { draft.widgets[element.dataset.widget] = element.checked; });
     });
-    document.addEventListener('pointerdown', event => {
-      const button = event.target.closest('[data-layout-zone]');
-      if (!button || event.button !== 0) return;
-      const box = button.parentElement.getBoundingClientRect();
-      const zone = editableLayout().zones.find(item => item.id === button.dataset.layoutZone);
-      drag = {button,box,zone,initialX:event.clientX,initialY:event.clientY,x:zone.x,y:zone.y,moved:false};
-      button.setPointerCapture(event.pointerId);
-    });
-    document.addEventListener('pointermove', event => {
-      if (!drag) return;
-      const dx = event.clientX - drag.initialX, dy = event.clientY - drag.initialY;
-      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 5) return;
-      drag.moved = true;
-      drag.x = Math.round(Math.max(0,Math.min(82,drag.zone.x + dx * 100 / drag.box.width)));
-      drag.y = Math.round(Math.max(6,Math.min(88,drag.zone.y + dy * 100 / drag.box.height)));
-      placeZone(drag.button, drag);
-    });
-    document.addEventListener('pointerup', () => {
-      if (!drag) return;
-      const completed = drag;
-      drag = undefined;
-      if (!completed.moved) return;
-      completed.zone.x = completed.x;
-      completed.zone.y = completed.y;
-      selectedZone = completed.zone.id;
-      layoutDirty = true;
-      render();
-    });
-    document.addEventListener('pointercancel', () => {
-      drag = undefined;
-      hydrate();
-    });
   }
 
   function closeMobile() {
@@ -810,7 +1607,15 @@ export function createWorkspaceView(ui) {
     document.querySelector('.symbio-mobile-menu').setAttribute('aria-expanded','false');
   }
 
-  return {renderShell, workbench, people, agentPage, layoutEditor, layoutSceneZones, help, action, hydrate, bind,
-    selectLayoutTab(tab) { layoutTab = ['seats','widgets'].includes(tab) ? tab : 'space'; },
-    dragging: () => Boolean(drag), closeMobile};
+  return {renderShell, workbench, people, agentPage, layoutEditor, layoutSceneZones, layoutSceneDesks, layoutDesignConfig,
+    activeOfficeDecor: () => layoutTab === 'decorate' ? editableDecor() : {
+      mode: data()?.officeMode === 'custom' ? 'custom' : 'default',
+      floors: data()?.officeFloors ?? [],
+      items: data()?.officeItems ?? [],
+      walls: data()?.officeWalls ?? [],
+      rugs: data()?.officeRugs ?? [],
+    },
+    help, action, hydrate, bind,
+    selectLayoutTab(tab) { layoutTab = ['decorate','seats','widgets'].includes(tab) ? tab : 'space'; },
+    dragging: () => false, closeMobile};
 }

@@ -50,10 +50,11 @@ OFFICE_SMTP_PASS="填入 SMTP 授权码"
 | `OFFICE_CONCURRENCY` | 可填 1–16，覆盖「AI 团队 → 运行时」中的并发设置。省略时由工作台管理。 |
 | `OFFICE_CODEX_BIN`、`OFFICE_PI_BIN` | 默认按 `PATH` 查找 `codex`、`pi`。后台运行时可指定绝对路径。 |
 | `OFFICE_PI_PROVIDER_EXTENSION` | Pi 登录依赖已安装的模型提供商扩展时，设置为该扩展入口的绝对路径。扩展在服务账号下执行。 |
+| `OFFICE_GH_BIN` | GitHub CLI 可执行文件的绝对路径。默认从 PATH 和常用安装路径查找 `gh`。账号和仓库范围在「设置 → 集成 → GitHub」管理。 |
 | `OFFICE_COLLECTOR_PORT` | 默认是工作台端口加一。设为 `0` 可关闭采集入口。 |
 | `OFFICE_COLLECTOR_TLS_CERT`、`OFFICE_COLLECTOR_TLS_KEY` | 采集端直接使用 HTTPS 时，指定可读取的 PEM 证书和私钥。 |
 | `OFFICE_COLLECTOR_PUBLIC_URL` | 可选，填写目标机器可访问的采集地址，供配对表单预填。 |
-| `OFFICE_COLLECTOR_PACKAGE_FILE` | 可选，指向 `npm pack ./collector` 生成的归档。设置后，首次启动命令从采集端下载包。 |
+| `OFFICE_COLLECTOR_PACKAGE_FILE` | 可选，指定 npm 归档覆盖默认源码包；平台安装命令从采集端下载。未设置时自动提供当前客户端源码归档。 |
 | `OFFICE_SMTP_SECURE` | 465 端口使用直接 TLS。其他端口可用 `1` 指定直接 TLS，未指定时要求 STARTTLS，默认端口为 587。 |
 
 ## 3. 安装、构建与首次启动
@@ -83,7 +84,7 @@ curl -fsS "$office_url/api/auth/session"
 
 1. 打开 [工作台](http://127.0.0.1:4317/office)，使用能收信的测试或管理员邮箱创建首位管理员。已有实例直接登录，旧账号如未绑定邮箱，先验证再进入工作台。
 2. 用另一个测试邮箱注册普通成员，在「设置 → 用户管理」启用后登录。验证普通成员可以打开任务和收件箱。
-3. 在「运行时」检查并发和扫描频率，再到「发现与入职」核对本机候选。按人事流程确认人格、技能、岗位和执行权限后批准入职。先用演示运行器验证任务状态，再用 Codex 和 Pi 验证实际执行。
+3. 在「运行时」检查并发和扫描频率，再到「发现与接入」核对本机运行器并点击接入。随后在「智能体」创建员工、绑定已接入来源并配置人格、技能、岗位与权限。完整步骤见 [接入与绑定指南](AGENT_ONBOARDING.md)。先用演示运行器验证任务状态，再用 Codex 和 Pi 验证实际执行。
 4. 由成员在「设置 → 通知」打开 @ 邮件通知。管理员在测试任务中 @ 该成员，核对站内通知、邮件正文和评论跳转。再取消评论的邮件勾选发一次，核对这次只进入站内收件箱。
 
 ## 4. 后台运行
@@ -171,68 +172,63 @@ journalctl --user -u symbio-office.service -n 50 --no-pager
 
 ## 5. 接入远程采集机器
 
-1. 在目标机器安装 Node.js 22.13 或更高版本。当前客户端为 `symbio-agent-collector@0.2.0`，需与支持配对码的新服务端一起升级。确认对应版本已发布至 npm；未发布或私有部署时，先按下方步骤配置本机归档源。
-2. 默认情况下，采集端只在工作台主机本机监听。请在目标机器启动 SSH 转发，将 `deploy@office-host` 换成工作台主机的 SSH 用户名和地址。需要同时访问管理页时，可加入 `-L 4317:127.0.0.1:4317`。
+完整操作指南在「发现与接入 → 采集机器」页面内，也可阅读 [远程机器接入与客户端使用指南](REMOTE_COLLECTOR_GUIDE.md)。接入顺序为：**npm 安装 → 生成 login 指令 → 输入配对码 → 确认机器在线 → 接入运行器 → 绑定员工**。
 
-   ```sh
-   ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-     -L 4318:127.0.0.1:4318 deploy@office-host
-   ```
+### 网络与安装
 
-3. 在「发现与入职 → 配对新机器」填写机器名称、目标机器可访问的接收地址，选择终端和任务读取范围（默认仅采集，也可授权所有项目或指定项目只读）。使用上述 SSH 转发时填写 `http://127.0.0.1:4318`。若采集端已配置可信 TLS 证书且目标机器可直连，填写 `https://采集主机名:4318`。
-
-4. 点击「生成配对码」，在新电脑以运行 Agent 的系统账号执行「首次启动」npm 命令，然后交互输入配对码。码在 10 分钟后过期，且只能交换一次；数据库仅保存其哈希。登录后自动首次上报并持续采集，在后台核对在线状态。远程候选经人事流程批准后作为「仅采集」员工。
-
-配对保存在 `~/.agent-office/collector.json`，也可用 `OFFICE_COLLECTOR_CONFIG` 指定路径。需要常驻时，将后台的「配对后重新启动」命令交给目标机服务管理器，以原系统账号运行。使用 SSH 转发时也需要保持隧道运行。
-
-已配对的 macOS 或 Linux 机器可以执行一次上报来检查连接。Windows PowerShell 中将 `npx` 换成 `npx.cmd`。
+目标机器要求 Node.js 22.13+。可先执行 `npm install -g symbio-agent-collector@0.2.0` 安装公共 npm 客户端，也可使用下方工作台归档安装方式。默认采集端只在工作台主机本机监听，在目标机器建立并保持 SSH 转发；替换 SSH 账号和主机地址：
 
 ```sh
-npx --yes --registry=https://registry.npmjs.org --package=symbio-agent-collector@0.2.0 -- symbio-agent-collector run --once
+ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+  -L 4318:127.0.0.1:4318 deploy@office-host
 ```
 
-凭据失效时，在后台撤销旧配对，客户端执行 `logout`，再生成配对码并 `login`。目标机器无法访问 npm 时，在「采集机器」下载独立脚本，用 `node office-collector.mjs login <接收地址> --run` 输入配对码。旧版 `join` / `install` 密钥方式保持兼容。
-
-### 使用工作台提供 npm 归档
-
-在工作台项目根目录打包，再配置环境变量并重启服务。归档仅包含公开客户端代码，不包含配对码或凭据。npm 命令会使用目标电脑可达的采集地址下载归档。
+在另一个终端执行平台生成的 npm 安装指令。上述隧道对应的示例为：
 
 ```sh
-mkdir -p data/collector-packages
-npm pack ./collector --pack-destination ./data/collector-packages
-# 在部署环境中配置（本机运行可写入 .env）：
-# OFFICE_COLLECTOR_PACKAGE_FILE=/absolute/path/data/collector-packages/symbio-agent-collector-0.2.0.tgz
+npm install --global --registry=https://registry.npmjs.org 'http://127.0.0.1:4318/v1/collector-package.tgz'
+symbio help
 ```
 
-更新客户端代码后重新打包并重启服务，保证归档版本与 `collector/package.json` 一致。从公共 npm 使用时，确认该版本已发布，再移除该变量。归档模式应使用后台生成的命令，在「配对后重新启动」命令后加 `--once` 检查连接。
+工作台默认从当前 `collector/package.json` 和 `collector/office-collector.mjs` 自动生成 npm 归档，只包含公开客户端代码，不包含配置或凭据，不依赖公共 npm 版本发布。升级源码后重启服务，目标机器重新安装。若需要指定构建产物，可设置 `OFFICE_COLLECTOR_PACKAGE_FILE` 覆盖默认包；无需配置该变量也能安装。
 
-### CLI 配置与查询
+HTTPS 直连时，用 `OFFICE_COLLECTOR_HOST` 配置监听，`OFFICE_COLLECTOR_TLS_CERT` / `OFFICE_COLLECTOR_TLS_KEY` 配置可信证书，或使用反向代理。代理前缀例如 `/collector` 时，需将 `/collector/v1/*` 转发到采集端的 `/v1/*`，包括包下载接口。`OFFICE_COLLECTOR_PUBLIC_URL` 用于预填表单，不改变监听或代理配置。可信局域网 HTTP 联调需启用 `OFFICE_COLLECTOR_ALLOW_HTTP=1`；平台会在 login 指令中添加 `--allow-http`。
 
-全局安装客户端（`npm install -g <对应版本或归档路径>`）后，可直接执行以下命令；也可复用后台生成的 `npx … -- symbio-agent-collector` 前缀。Windows PowerShell 使用 `npx.cmd`。
+### 配对与使用
+
+1. 点击「接入新机器」，填写机器名、目标机可达的采集基础地址、终端和读取范围。地址不含 `/office` 或 `/v1/report`；SSH 示例用 `http://127.0.0.1:4318`。
+2. 点击「生成 login 命令」。窗口分别提供安装、login、后续运行命令和一次性配对码。
+3. 完成安装后执行 login 命令并交互输入配对码。配对码有效期 10 分钟、只能使用一次，服务端仅保存哈希。生成的命令带 `--run`，首次上报后持续采集。
+4. 在平台确认在线，选择运行器接入，再到「智能体」创建或编辑员工并绑定来源。远程接入目前支持采集及只读查询，尚不支持远程任务执行。
+
+默认命令为 `symbio`，也提供 `symbio-cli` 和旧命令 `symbio-agent-collector` 别名，共用登录与配置。已有客户端需重新执行平台安装命令以获得短命令。PowerShell 使用 `npm.cmd` 安装、`symbio.cmd` 执行。默认配对配置在 `~/.agent-office/collector.json`，可用 `OFFICE_COLLECTOR_CONFIG` 指定独立路径；每份配置只运行一个持续采集进程。
 
 ```sh
-symbio-agent-collector config path
-symbio-agent-collector config show
-symbio-agent-collector config get server
-symbio-agent-collector config set interval 30
-symbio-agent-collector config set server https://office.example:4318
-symbio-agent-collector login
-symbio-agent-collector whoami --json
-symbio-agent-collector tasks list --status in_progress --limit 20 --offset 0
-symbio-agent-collector tasks list --project <项目ID> --json
-symbio-agent-collector tasks show AG-12 --json
-symbio-agent-collector agents list --json
-symbio-agent-collector logout
+symbio run --once
+symbio run
+symbio config path
+symbio config show
+symbio config set interval 30
+symbio status --json
+symbio tasks list --status in_progress --limit 20 --offset 0
+symbio tasks show AG-12 --json
+symbio agents list --json
+symbio logout
 ```
 
-- `config show` 不显示凭据。修改 `server` 会清除旧登录；`logout` 保留地址和偏好，后台「撤销配对」才会使凭据的所有副本失效。
-- `interval` 为 5–3600 秒，默认 10 秒；服务端按上报间隔判断离线，持续采集每个周期重读配置。
-- 查询只返回授权范围中的任务摘要、描述、验收标准和子任务。主列表不混入子任务；不提供执行日志、提示词、共享文件或任务写操作。
-- 配对码兑换接口每来源地址每分钟最多 10 次，全局每分钟最多 300 次。任务查询要求机器凭据，撤销后立即拒绝。
-- 配对码过期、已使用或丢失时，撤销旧机器并重新生成。首次扫描失败但登录已保存时，修复网络后执行 `run --once`。
-- 客户端配置写入时使用锁，异常退出遗留锁时，确认相关命令已经停止再删除提示中的 `.lock` 文件。
+持续运行需保持终端打开，或自行通过 launchd、systemd、Windows 任务计划程序配置上述 `run` 命令，以能够访问 Agent 的原系统账号运行；客户端不自动安装系统服务。SSH 隧道也需保持运行。无法使用 npm 时，下载独立脚本，使用 `node office-collector.mjs login <地址> --run`；旧版 `join` / `install` 方式保持兼容。
 
-完整命令参考：[Collector README](../collector/README.md)。
+### 撤销、删除与排障
+
+- 默认每 10 秒上报，`interval` 支持 5–3600 秒；离线窗口随心跳间隔变化。停止后默认约 40 秒标记离线。
+- 任务查询只返回授权范围内的基本信息和子任务；「仅采集」不允许读取任务，不提供任务写入、日志、提示词或共享文件。
+- 更改 `server` 清除旧登录；`logout` 清除本地凭据，平台撤销使所有凭据副本失效。
+- **删除机器**需要非本机、无近期上报、无员工绑定、无活动任务引用。暂停员工仍属于绑定。删除清理配对和扫描记录，保留任务、执行与审计历史。未上报的待配对记录也可删除。
+- 配对码过期或已使用时删除无用记录，重新生成。首次上报失败但登录已保存时，修复连接后执行 `run --once`，无需再次消耗配对码。
+- 配对码兑换每来源地址每分钟最多 10 次、全局每分钟最多 300 次。任务查询需要有效机器凭据。
+- 配置异常退出遗留锁时，确认相关命令均停止后再删除报错提示中的 `.lock` 文件。
+
+更多命令与排障见 [完整指南](REMOTE_COLLECTOR_GUIDE.md) 和 [Collector README](../collector/README.md)。
 
 ## 6. 备份、升级与回滚
 

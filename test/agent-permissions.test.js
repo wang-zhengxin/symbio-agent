@@ -14,6 +14,7 @@ test('Pending authorization persists independently of adapter capabilities and a
  const discovery=createDiscovery(store);
  discovery.receive('local',{hostname:'test',platform:'darwin',installed:['workbuddy','codex'],processScan:'ok',processes:[]});
  const source=provider=>store.list('candidate').find(row=>row.provider===provider);
+ discovery.connect(source('codex').id);
  const server=office.saveMcpServer({name:'检索',transport:'http',url:'https://example.com/mcp',tools:'lookup'});
  const draft=office.stageCandidate(source('workbuddy').id,{name:'负责人',role:'lead',runtime:'observed',personality:'稳健',scope:'协调'});
  const hired=office.approveCandidate(draft.id,draft.reviewVersion);
