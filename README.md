@@ -1,6 +1,6 @@
 # Symbio Agent · 人机共生多智能体协作工作台
 
-[English](README.en.md) · [部署与运维手册](docs/DEPLOYMENT.md) · [运行器接入指南](docs/AGENT_ONBOARDING.md) · [远程采集客户端](docs/REMOTE_COLLECTOR_GUIDE.md) · [GitHub 授权说明](docs/GITHUB_INTEGRATION.md)
+[在线说明与 3D 交互演示](https://wang-zhengxin.github.io/symbio-agent/) · [在线产品主页与 3D 演示](https://wang-zhengxin.github.io/symbio-agent/) · [English](README.en.md) · [部署与运维手册](docs/DEPLOYMENT.md) · [运行器接入指南](docs/AGENT_ONBOARDING.md) · [远程采集客户端](docs/REMOTE_COLLECTOR_GUIDE.md) · [GitHub 授权说明](docs/GITHUB_INTEGRATION.md)
 
 **Symbio Agent** 是一套本地优先（Local-First）的多 Agent 与真人协同办公工作台。它将真人成员与 Codex、Pi 等 AI 智能体汇聚在同一座可交互的 **3D 数字办公室** 中，统一管理空间建造、工位分配、小队组织、Skills、MCP 工具、任务流转、会议讨论、项目文件验收与三级 Token 预算。所有状态与执行事件持久化于本地 SQLite，并通过 SSE 实时同步到浏览器。
 

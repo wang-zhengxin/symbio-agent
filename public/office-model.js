@@ -1,4 +1,4 @@
-import * as T from '/office-vendor/three.module.min.js';
+import * as T from './office-vendor/three.module.min.js';
 import { breakTable, chatTables, desks, extraDesks, loungeSeats, meetingTable, officeEast } from './office-presence.js';
 import { officeWallHeight, wallSections } from './office-walls.js';
 import { furnitureByType, rotationRadians, wallAxis, wallSubSegments } from './office-furniture.js';

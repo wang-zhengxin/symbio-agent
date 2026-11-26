@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowRight, ChevronDown, HelpCircle } from 'lucide-react';
 import { SymbioMark } from '@/components/Navbar';
+import { isPagesMode, REPO_URL, workspaceHref } from '@/lib/links';
 
 const FAQS = [
   {
@@ -90,23 +91,27 @@ export default function FaqFooter() {
                 现在就走进你的 3D 人机协同办公室
               </h2>
               <p className="text-[14.5px] text-[#c7c1ba] leading-[1.7] mt-2.5">
-                本机服务已就绪。点击下方按钮直接进入实时数字办公室、查看任务看板或接入你的第一个 AI 运行器。
+                {isPagesMode
+                  ? '克隆仓库并执行 npm install && npm start，5 分钟内即可在你的本机启动完整 3D 数字办公室与多 Agent 协作工作台。'
+                  : '本机服务已就绪。点击下方按钮直接进入实时数字办公室、查看任务看板或接入你的第一个 AI 运行器。'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3 shrink-0">
               <a
-                href="/office#overview"
+                href={isPagesMode ? REPO_URL : workspaceHref('#overview')}
+                target={isPagesMode ? '_blank' : undefined}
+                rel={isPagesMode ? 'noreferrer' : undefined}
                 className="inline-flex items-center gap-2 h-[46px] px-6 rounded-[12px] bg-[#f7f5f2] hover:bg-white text-[#242323] text-[14.5px] font-semibold transition-colors"
               >
-                进入数字办公室
+                {isPagesMode ? '前往 GitHub 获取源码' : '进入数字办公室'}
                 <ArrowRight className="w-4 h-4" />
               </a>
               <a
-                href="/office#help"
+                href={isPagesMode ? '#guide' : workspaceHref('#help')}
                 className="inline-flex items-center gap-1.5 h-[46px] px-5 rounded-[12px] bg-white/10 hover:bg-white/15 border border-white/15 text-[#f7f5f2] text-[14px] font-medium transition-colors"
               >
                 <HelpCircle className="w-4 h-4" />
-                工作台帮助中心
+                {isPagesMode ? '查看部署指南' : '工作台帮助中心'}
               </a>
             </div>
           </div>
@@ -123,12 +128,24 @@ export default function FaqFooter() {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-5">
-            <a href="/office#overview" className="hover:text-[#252423] transition-colors">办公室</a>
-            <a href="/office#tasks/all" className="hover:text-[#252423] transition-colors">任务看板</a>
-            <a href="/office#agents" className="hover:text-[#252423] transition-colors">智能体</a>
-            <a href="/office#discovery" className="hover:text-[#252423] transition-colors">发现与接入</a>
-            <a href="/office#layout" className="hover:text-[#252423] transition-colors">空间与工位</a>
-            <a href="/office#finance" className="hover:text-[#252423] transition-colors">统计与预算</a>
+            {isPagesMode ? (
+              <>
+                <a href="#features" className="hover:text-[#252423] transition-colors">产品亮点</a>
+                <a href="#demo" className="hover:text-[#252423] transition-colors">3D 交互演示</a>
+                <a href="#guide" className="hover:text-[#252423] transition-colors">使用说明</a>
+                <a href="#faq" className="hover:text-[#252423] transition-colors">常见问题</a>
+                <a href={REPO_URL} target="_blank" rel="noreferrer" className="hover:text-[#252423] transition-colors">GitHub</a>
+              </>
+            ) : (
+              <>
+                <a href="/office#overview" className="hover:text-[#252423] transition-colors">办公室</a>
+                <a href="/office#tasks/all" className="hover:text-[#252423] transition-colors">任务看板</a>
+                <a href="/office#agents" className="hover:text-[#252423] transition-colors">智能体</a>
+                <a href="/office#discovery" className="hover:text-[#252423] transition-colors">发现与接入</a>
+                <a href="/office#layout" className="hover:text-[#252423] transition-colors">空间与工位</a>
+                <a href="/office#finance" className="hover:text-[#252423] transition-colors">统计与预算</a>
+              </>
+            )}
           </div>
         </div>
       </footer>

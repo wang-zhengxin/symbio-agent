@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { isPagesMode, REPO_URL, workspaceHref } from '@/lib/links';
 
 export interface SceneDemoActorSpec {
   key: string;
@@ -63,11 +64,12 @@ let cachedModulesPromise: Promise<RuntimeModules> | null = null;
 
 function loadOfficeModules(): Promise<RuntimeModules> {
   if (!cachedModulesPromise) {
+    const base = import.meta.env.BASE_URL;
     const dynamicImport = (url: string) => import(/* @vite-ignore */ url);
     cachedModulesPromise = Promise.all([
-      dynamicImport('/office-scene.js'),
-      dynamicImport('/office-avatars.js'),
-      dynamicImport('/office-presence.js'),
+      dynamicImport(`${base}office-scene.js`),
+      dynamicImport(`${base}office-avatars.js`),
+      dynamicImport(`${base}office-presence.js`),
     ]).then(([sceneMod, avatarMod, presenceMod]) => ({
       createOfficeScene: sceneMod.createOfficeScene,
       resolveAvatar: avatarMod.resolveAvatar,
@@ -189,8 +191,13 @@ export default function Office3DStage({
       {failed && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center text-[13px] text-[#5d5956]">
           <p className="font-medium text-[#252423]">当前浏览器未启用 WebGL 3D 渲染</p>
-          <a href="/office#overview" className="text-[#3d614e] font-semibold underline underline-offset-4">
-            直接进入工作台查看 →
+          <a
+            href={isPagesMode ? REPO_URL : workspaceHref('#overview')}
+            target={isPagesMode ? '_blank' : undefined}
+            rel={isPagesMode ? 'noreferrer' : undefined}
+            className="text-[#3d614e] font-semibold underline underline-offset-4"
+          >
+            {isPagesMode ? '前往 GitHub 查看源码与部署指南 →' : '直接进入工作台查看 →'}
           </a>
         </div>
       )}

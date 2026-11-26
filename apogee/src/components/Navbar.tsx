@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, Menu, X } from 'lucide-react';
+import { isPagesMode, REPO_URL, workspaceHref } from '@/lib/links';
 
 const ANCHOR_LINKS = [
   { label: '产品亮点', href: '#features' },
@@ -59,16 +60,18 @@ export default function Navbar() {
 
           <div className="hidden md:flex items-center gap-2.5">
             <a
-              href="/office#help"
+              href={isPagesMode ? REPO_URL : workspaceHref('#help')}
+              target={isPagesMode ? '_blank' : undefined}
+              rel={isPagesMode ? 'noreferrer' : undefined}
               className="inline-flex items-center justify-center h-[36px] px-3.5 rounded-[10px] text-[#5d5956] hover:text-[#252423] hover:bg-black/[0.04] text-[13px] font-medium transition-colors"
             >
-              帮助中心
+              {isPagesMode ? 'GitHub 仓库' : '帮助中心'}
             </a>
             <a
-              href="/office#overview"
+              href={workspaceHref('#overview', '#guide')}
               className="inline-flex items-center gap-1.5 h-[36px] px-4 bg-[#242323] hover:bg-[#383634] rounded-[10px] text-[#f7f5f2] text-[13px] font-medium transition-colors"
             >
-              进入工作台
+              {isPagesMode ? '本地快速部署' : '进入工作台'}
               <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
             </a>
           </div>
@@ -98,16 +101,19 @@ export default function Navbar() {
                 </a>
               ))}
               <a
-                href="/office#help"
+                href={isPagesMode ? REPO_URL : workspaceHref('#help')}
+                target={isPagesMode ? '_blank' : undefined}
+                rel={isPagesMode ? 'noreferrer' : undefined}
                 className="px-3 py-2.5 rounded-[10px] text-[14px] font-medium text-[#5d5956] hover:bg-[#f1ede9]"
               >
-                帮助中心
+                {isPagesMode ? 'GitHub 仓库' : '帮助中心'}
               </a>
               <a
-                href="/office#overview"
+                href={workspaceHref('#overview', '#guide')}
+                onClick={() => setMobileMenuOpen(false)}
                 className="mt-2 inline-flex items-center justify-center gap-2 h-[42px] px-4 bg-[#242323] rounded-[10px] text-[#f7f5f2] text-[14px] font-medium"
               >
-                进入工作台
+                {isPagesMode ? '本地快速部署' : '进入工作台'}
                 <ArrowRight className="w-4 h-4" />
               </a>
             </div>

@@ -347,7 +347,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET') {
       if (path === '/office-vendor/OrbitControls.js') {
         const source = readFileSync(join(root, 'node_modules/three/examples/jsm/controls/OrbitControls.js'), 'utf8')
-          .replace("from 'three'", "from '/office-vendor/three.module.min.js'");
+          .replace("from 'three'", "from './three.module.min.js'");
         res.writeHead(200, {'Content-Type':mime['app.js'], 'Cache-Control':'no-cache'});
         return res.end(source);
       }

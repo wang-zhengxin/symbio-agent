@@ -6,6 +6,7 @@ import {
   Radar,
   ShieldCheck,
 } from 'lucide-react';
+import { isPagesMode, workspaceHref } from '@/lib/links';
 
 const FEATURES = [
   {
@@ -14,8 +15,8 @@ const FEATURES = [
     title: '3D 数字办公室与从零自建空间',
     desc: '既可在默认户型上扩建工位与增设家具，也可切换至 24×20m 空白蓝图从零建造：先画正交墙与门洞（近距离自动磁吸无缝转角），再铺设 4 材质地板或一键铺满，最后摆放工位、功能区与摆件。',
     bullets: ['支持编织地毯 / 暖橡木 / 浅灰石 / 灰绿砖 4 种地板', '内置老板桌、前台、会议长桌、休息长桌与 8 种办公摆件', '2D A* 避障穿门寻路、24h 自然光影与独立随机错峰休息'],
-    href: '/office#layout/decorate',
-    linkText: '体验 3D 自由布置',
+    href: workspaceHref('#layout/decorate', '#demo'),
+    linkText: isPagesMode ? '在下方体验 3D 样板' : '体验 3D 自由布置',
   },
   {
     icon: Radar,
@@ -23,8 +24,8 @@ const FEATURES = [
     title: '多运行器自动发现与异机采集',
     desc: '自动扫描本机安装的 Codex、Pi、Claude Code、Gemini CLI、OpenCode、WorkBuddy、Antigravity 等运行器；提供独立 CLI 客户端 symbio，通过一次性配对码安全接入远程主机。',
     bullets: ['先接入运行器，再在智能体中按需复用绑定', '支持只读任务/成员查询与离线机器安全删除', '未适配运行器以「仅观察模式」纳入统一盘点'],
-    href: '/office#discovery',
-    linkText: '前往发现与接入',
+    href: workspaceHref('#discovery', '#demo'),
+    linkText: isPagesMode ? '查看接入演示' : '前往发现与接入',
   },
   {
     icon: ShieldCheck,
@@ -32,8 +33,8 @@ const FEATURES = [
     title: '小队、Skills、MCP 与 GitHub 授权',
     desc: '按职责组建真人与 AI 混合小队，从在线技能目录固定版本下载或导入 SKILL.md，配置 stdio / Streamable HTTP MCP 白名单与 GitHub 仓库级工具权限。',
     bullets: ['执行适配状态与管理员授权分离管理', '人事 / 财务岗位默认只读安全上限', '小队、技能、标签、属性与 MCP 支持原子化级联安全删除'],
-    href: '/office#agents',
-    linkText: '管理智能体团队',
+    href: workspaceHref('#agents', '#guide'),
+    linkText: isPagesMode ? '查看配置说明' : '管理智能体团队',
   },
   {
     icon: KanbanSquare,
@@ -41,8 +42,8 @@ const FEATURES = [
     title: '看板流转、定时派发与多轮讨论',
     desc: '默认呈现待办、进行中、审核中、已完成四列核心看板（支持展开规划/阻塞/取消扩展列），可拆分子任务、设一次性定时派发，或拉起双人/多人会议室讨论。',
     bullets: ['看板 / 列表 / 表格三种视图自由切换', '支持任务标签、自定义字段与 CSV 导出', '评论区 @ 提及联动收件箱与邮件通知'],
-    href: '/office#tasks/all',
-    linkText: '查看任务看板',
+    href: workspaceHref('#tasks/all', '#demo'),
+    linkText: isPagesMode ? '体验任务流转' : '查看任务看板',
   },
   {
     icon: FolderGit2,
@@ -50,8 +51,8 @@ const FEATURES = [
     title: '文件版本留痕与人工验收发布',
     desc: '每个项目配备独立的公共工作区。AI 执行完成后交付文件自动进入待发布区，支持开工基线、当前版本与本次交付三方对比，无误后一键发布或退回重跑。',
     bullets: ['每次上传与发布自动递增版本号（v1, v2…）', '多任务并发改动自动检测版本冲突', '可选绑定 HTTPS Git 仓库地址'],
-    href: '/office#tasks',
-    linkText: '浏览项目工作台',
+    href: workspaceHref('#tasks', '#guide'),
+    linkText: isPagesMode ? '查看验收流程' : '浏览项目工作台',
   },
   {
     icon: Coins,
@@ -59,8 +60,8 @@ const FEATURES = [
     title: '三级 Token 预算与本机优先架构',
     desc: '按公司、小队、员工三级设置 Token 预算并实时预留防超支；所有状态与审计记录完全保存在本地 SQLite 数据库中，默认仅监听回环地址。',
     bullets: ['启动前自动预留额度，超预算拒绝派发', '同源请求校验与管理员/成员双角色隔离', '保留最近 100 条关键管理操作审计日志'],
-    href: '/office#finance',
-    linkText: '查看统计与预算',
+    href: workspaceHref('#finance', '#faq'),
+    linkText: isPagesMode ? '了解安全护栏' : '查看统计与预算',
   },
 ];
 

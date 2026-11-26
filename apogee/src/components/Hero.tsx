@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react';
 import { ArrowRight, CheckCircle2, Cpu, Layers, Play, Sparkles } from 'lucide-react';
 import Office3DStage, { type SceneDemoActorSpec } from '@/components/Office3DStage';
+import { isPagesMode, REPO_URL, workspaceHref } from '@/lib/links';
 
 const RHYTHM_BARS = [
   28, 42, 56, 38, 62, 74, 48, 82, 68, 90,
@@ -168,10 +169,10 @@ export default function Hero() {
           <Animate delay={120} direction="up">
             <div className="flex flex-wrap items-center gap-3.5 mb-10">
               <a
-                href="/office#overview"
+                href={workspaceHref('#overview', '#guide')}
                 className="inline-flex items-center gap-2 h-[48px] px-6 bg-[#242323] hover:bg-[#383634] rounded-[12px] text-[#f7f5f2] text-[15px] font-semibold transition-all shadow-[0_8px_20px_-8px_rgba(36,35,35,0.45)]"
               >
-                立即进入工作台
+                {isPagesMode ? '本地快速部署' : '立即进入工作台'}
                 <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </a>
               <a
@@ -181,6 +182,16 @@ export default function Hero() {
                 <Play className="w-3.5 h-3.5 text-[#3d614e]" aria-hidden="true" />
                 体验交互演示
               </a>
+              {isPagesMode && (
+                <a
+                  href={REPO_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 h-[48px] px-4 text-[#5d5956] hover:text-[#252423] text-[14px] font-medium transition-colors"
+                >
+                  GitHub 源码 →
+                </a>
+              )}
             </div>
           </Animate>
 

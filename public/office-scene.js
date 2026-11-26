@@ -1,5 +1,5 @@
-import * as T from '/office-vendor/three.module.min.js';
-import { OrbitControls } from '/office-vendor/OrbitControls.js';
+import * as T from './office-vendor/three.module.min.js';
+import { OrbitControls } from './office-vendor/OrbitControls.js';
 import { officeStates } from './office-avatars.js';
 import { createOfficeFigure } from './office-figure.js';
 import {

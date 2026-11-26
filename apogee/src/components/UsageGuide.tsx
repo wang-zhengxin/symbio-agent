@@ -7,6 +7,7 @@ import {
   Keyboard,
   Terminal,
 } from 'lucide-react';
+import { isPagesMode, REPO_URL, workspaceHref } from '@/lib/links';
 
 interface GuideStep {
   num: string;
@@ -39,8 +40,8 @@ npm start
 
 # 自定义数据目录、端口与最大并发执行数
 OFFICE_PORT=4317 OFFICE_CONCURRENCY=3 OFFICE_DATA_DIR=./data npm start`,
-    entryHref: '/office#settings/workspace',
-    entryLabel: '打开工作区常规设置',
+    entryHref: isPagesMode ? `${REPO_URL}#快速开始` : workspaceHref('#settings/workspace'),
+    entryLabel: isPagesMode ? '查看完整部署文档' : '打开工作区常规设置',
     tip: '首次登录后可在「设置 → 常规」补充项目技术栈与代码规范上下文，所有 Agent 执行任务时都会自动读取。',
   },
   {
@@ -63,8 +64,8 @@ symbio login 'http://127.0.0.1:4318' --run
 
 # 3. 随时查询状态或只读查看任务列表
 symbio status --json && symbio tasks list --status in_progress`,
-    entryHref: '/office#discovery',
-    entryLabel: '前往发现与接入',
+    entryHref: isPagesMode ? `${REPO_URL}/blob/main/docs/REMOTE_COLLECTOR_GUIDE.md` : workspaceHref('#discovery'),
+    entryLabel: isPagesMode ? '远程采集指南' : '前往发现与接入',
     tip: '本机采集端口默认为工作台端口 + 1（4318），仅监听回环地址；跨主机局域网采集支持 TLS 证书配置。',
   },
   {
@@ -82,8 +83,8 @@ symbio status --json && symbio tasks list --status in_progress`,
     code: `1. 绘制墙面 → 靠近墙角/T型墙面自动磁吸无缝连接（按住 Alt 临时关闭吸附）
 2. 铺设地板 → 拖拽拼接编织地毯 / 暖橡木 / 浅灰石 / 灰绿砖，或一键按墙体铺满
 3. 摆放家具 → R 旋转 90° · Delete 删除选中 · ⌘Z / ⌘⇧Z 撤销重做 · Esc 退出工具`,
-    entryHref: '/office#layout/decorate',
-    entryLabel: '打开 3D 自由布置',
+    entryHref: isPagesMode ? '#demo' : workspaceHref('#layout/decorate'),
+    entryLabel: isPagesMode ? '体验 3D 自建样板' : '打开 3D 自由布置',
     tip: '小队、Skills、任务标签、自定义属性和 MCP 服务均支持随时编辑与原子化级联安全删除，删除时自动清理关联引用并写入操作审计。',
   },
   {
@@ -101,8 +102,8 @@ symbio status --json && symbio tasks list --status in_progress`,
     code: `• 任务启动前：自动校验公司 / 小队 / 员工三级 Token 预算并预留额度
 • 任务执行中：支持实时查看阶段耗时、工具调用轨迹与随时点击「停止」
 • 交付验收时：并发修改自动触发版本冲突提示，必须经人工确认才能发布新版本`,
-    entryHref: '/office#tasks/all',
-    entryLabel: '打开任务看板',
+    entryHref: isPagesMode ? '#demo' : workspaceHref('#tasks/all'),
+    entryLabel: isPagesMode ? '体验看板演示' : '打开任务看板',
     tip: '在办公室 3D 视图中，你可以点击工具栏的光影按钮实时预览清晨 / 正午 / 黄昏 / 深夜效果，也能自由旋转缩放观察团队动态。',
   },
 ];
@@ -194,6 +195,8 @@ export default function UsageGuide() {
               </div>
               <a
                 href={current.entryHref}
+                target={current.entryHref.startsWith('http') ? '_blank' : undefined}
+                rel={current.entryHref.startsWith('http') ? 'noreferrer' : undefined}
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-[9px] bg-[#f4f0eb] hover:bg-[#e8e2da] border border-[#ddd5cc] text-[12.5px] font-medium text-[#252423] transition-colors"
               >
                 {current.entryLabel}

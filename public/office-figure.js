@@ -1,4 +1,4 @@
-import * as T from '/office-vendor/three.module.min.js';
+import * as T from './office-vendor/three.module.min.js';
 import { officeStates } from './office-avatars.js';
 
 const sphere = new T.SphereGeometry(.5,12,10);

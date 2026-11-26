@@ -1,6 +1,6 @@
 # Symbio Agent · Local-First Multi-Agent Collaboration Workspace
 
-[简体中文](README.md) · [Deployment Guide (ZH)](docs/DEPLOYMENT.md) · [Agent Onboarding (ZH)](docs/AGENT_ONBOARDING.md) · [Remote Collector Guide (ZH)](docs/REMOTE_COLLECTOR_GUIDE.md) · [GitHub Integration (ZH)](docs/GITHUB_INTEGRATION.md)
+[Live Product Page & 3D Demo](https://wang-zhengxin.github.io/symbio-agent/) · [Live Product Site & 3D Demo](https://wang-zhengxin.github.io/symbio-agent/) · [简体中文](README.md) · [Deployment Guide (ZH)](docs/DEPLOYMENT.md) · [Agent Onboarding (ZH)](docs/AGENT_ONBOARDING.md) · [Remote Collector Guide (ZH)](docs/REMOTE_COLLECTOR_GUIDE.md) · [GitHub Integration (ZH)](docs/GITHUB_INTEGRATION.md)
 
 **Symbio Agent** is an independently built, local-first workspace where human teammates and AI agents (Codex, Pi, and observed CLI runtimes) collaborate inside an interactive **3D digital office**. It unifies spatial office building, desk assignment, squads, Skills, MCP tools, task boards, multi-round meetings, shared file review, and three-tier token budgets. All state and run events live in local SQLite and stream to browsers in real time over SSE.
 

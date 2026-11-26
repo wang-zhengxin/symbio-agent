@@ -15,6 +15,7 @@ import {
   Sun,
 } from 'lucide-react';
 import Office3DStage, { type SceneDemoActorSpec } from '@/components/Office3DStage';
+import { isPagesMode, workspaceHref } from '@/lib/links';
 
 type DemoTab = 'office' | 'board' | 'discovery';
 
@@ -539,10 +540,10 @@ export default function InteractiveDemo() {
                 </div>
 
                 <a
-                  href="/office#overview"
+                  href={workspaceHref('#overview', '#guide')}
                   className="mt-6 inline-flex items-center justify-center gap-1.5 h-[40px] rounded-[10px] bg-[#242323] hover:bg-[#383634] text-[#f7f5f2] text-[13px] font-medium transition-colors"
                 >
-                  进入真实 3D 办公室 →
+                  {isPagesMode ? '按指南部署本机 3D 办公室 →' : '进入真实 3D 办公室 →'}
                 </a>
               </aside>
             </div>
